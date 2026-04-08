@@ -1,0 +1,25 @@
+# Credentials
+.env
+
+# Data files (spreadsheets, CSVs)
+data/
+
+# Logs
+logs/
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+Thumbs.db
+.DS_Store
