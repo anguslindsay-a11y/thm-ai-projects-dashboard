@@ -1,11 +1,25 @@
 # Credentials
 .env
+.env.local
+.env.*.local
 
 # Data files (spreadsheets, CSVs)
 data/
 
+# Source ad images (3 GB+, client business data — never push)
+THM Ads/
+
+# Generated reports & exports
+output/
+
 # Logs
 logs/
+
+# Local Claude / agent / MCP state — machine-specific, may contain tokens
+.claude/
+.agents/
+.mcp.json
+skills-lock.json
 
 # Python
 venv/
@@ -23,3 +37,4 @@ build/
 # OS
 Thumbs.db
 .DS_Store
+desktop.ini

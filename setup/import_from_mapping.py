@@ -33,13 +33,13 @@ EXCEL_PATH = Path(__file__).resolve().parent.parent / "data" / "Client Mapping N
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Zone code -> state code mapping (DB column in spreadsheet -> zones.state in Supabase)
-ZONE_DB_TO_STATE = {
+# Spreadsheet DB column -> market code in Supabase
+DB_TO_MARKET_CODE = {
     "CO": "CO",
     "UT": "UT",
-    "AU": "TX",  # Austin is in TX
-    "SA": "TX",  # San Antonio is in TX
-    "XX": "XX",
+    "AU": "AU",
+    "SA": "SA",
+    # "XX" (Cross-Market) has no market — these are Uniqode entries without a market key
 }
 
 # Spreadsheet platform names -> Supabase platform enum values
@@ -48,15 +48,6 @@ PLATFORM_MAP = {
     "CallRail": "callrail",
     "Uniqode": "uniqode",
     "Inbox Advantage": "inbox_advantage",
-}
-
-# Zone code -> zone name (for matching pre-populated zones)
-ZONE_NAMES = {
-    "CO": "Colorado",
-    "UT": "Utah",
-    "AU": "Austin",
-    "SA": "San Antonio",
-    "XX": "Cross-Market",
 }
 
 
@@ -152,20 +143,14 @@ def run_import(rows, dry_run=True):
     # --- Live import ---
     sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # Step 1: Load existing zones into a lookup dict (state -> zone row)
-    print("Step 1/5: Loading zones...")
-    zones_result = sb.table("zones").select("*").execute()
-    zone_lookup = {}  # zone code from spreadsheet DB column -> zone row
-    for z in zones_result.data:
-        # Map by zone name to DB code
-        for db_code, zone_name in ZONE_NAMES.items():
-            if z["name"] == zone_name:
-                zone_lookup[db_code] = z
-                break
-    print(f"  Loaded {len(zone_lookup)} zones: {list(zone_lookup.keys())}")
+    # Step 1: Load existing markets
+    print("Step 1/4: Loading markets...")
+    markets_result = sb.table("markets").select("*").execute()
+    market_lookup = {m["code"]: m for m in markets_result.data}
+    print(f"  Loaded {len(market_lookup)} markets: {list(market_lookup.keys())}")
 
     # Step 2: Create sales reps
-    print("\nStep 2/5: Creating sales reps...")
+    print("\nStep 2/4: Creating sales reps...")
     rep_lookup = {}  # rep name -> rep row
     # Load existing reps first
     existing_reps = sb.table("sales_reps").select("*").execute()
@@ -187,20 +172,20 @@ def run_import(rows, dry_run=True):
     print(f"  Created {reps_created} reps, {len(rep_lookup)} total in DB")
 
     # Step 3: Create clients (unique by OfficialName)
-    print("\nStep 3/5: Creating clients...")
+    print("\nStep 3/4: Creating clients...")
     client_lookup = {}  # official name -> client row
     # Load existing clients first
-    existing_clients = sb.table("clients").select("id,name,sales_rep_id,primary_zone_id").execute()
+    existing_clients = sb.table("clients").select("id,name,sales_rep_id,primary_market_id").execute()
     for c in existing_clients.data:
         client_lookup[c["name"]] = c
 
-    # Build a map of client -> first zone and first rep from spreadsheet
-    client_meta = {}  # official_name -> {zone_code, rep_name}
+    # Build a map of client -> first market and first rep from spreadsheet
+    client_meta = {}  # official_name -> {market_code, rep_name}
     for r in valid_rows:
         name = str(r["OfficialName"]).strip()
         if name not in client_meta:
             client_meta[name] = {
-                "zone_code": r.get("DB"),
+                "market_code": DB_TO_MARKET_CODE.get(r.get("DB")),
                 "rep_name": str(r.get("RepName", "")).strip() if r.get("RepName") else None,
             }
 
@@ -215,10 +200,10 @@ def run_import(rows, dry_run=True):
         meta = client_meta.get(clean_name, {})
         insert_data = {"name": clean_name}
 
-        # Set primary zone if we can resolve it
-        zone_code = meta.get("zone_code")
-        if zone_code and zone_code in zone_lookup:
-            insert_data["primary_zone_id"] = zone_lookup[zone_code]["id"]
+        # Set primary market if we can resolve it
+        market_code = meta.get("market_code")
+        if market_code and market_code in market_lookup:
+            insert_data["primary_market_id"] = market_lookup[market_code]["id"]
 
         # Set sales rep if we can resolve it
         rep_name = meta.get("rep_name")
@@ -234,35 +219,9 @@ def run_import(rows, dry_run=True):
 
     print(f"  Created {clients_created} clients, {len(client_lookup)} total in DB")
 
-    # Step 4: Link clients to zones
-    print("\nStep 4/5: Linking client zones...")
-    # Load existing links
-    existing_cz = sb.table("client_zones").select("client_id,zone_id").execute()
-    existing_cz_set = set((r["client_id"], r["zone_id"]) for r in existing_cz.data)
-
-    cz_created = 0
-    cz_pairs_seen = set()
-    for r in valid_rows:
-        name = str(r["OfficialName"]).strip()
-        zone_code = r.get("DB")
-        if name not in client_lookup or zone_code not in zone_lookup:
-            continue
-        client_id = client_lookup[name]["id"]
-        zone_id = zone_lookup[zone_code]["id"]
-        pair = (client_id, zone_id)
-        if pair in existing_cz_set or pair in cz_pairs_seen:
-            continue
-        cz_pairs_seen.add(pair)
-        sb.table("client_zones").insert({
-            "client_id": client_id,
-            "zone_id": zone_id,
-        }).execute()
-        cz_created += 1
-
-    print(f"  Created {cz_created} client-zone links")
-
-    # Step 5: Map platform IDs
-    print("\nStep 5/5: Mapping platform IDs...")
+    # Step 4: Map platform IDs
+    # Note: client_zones are populated from order data (import_orders.py), not from this mapping spreadsheet
+    print("\nStep 4/4: Mapping platform IDs...")
     # Load existing platform mappings
     existing_pids = sb.table("client_platform_ids").select("external_id").execute()
     existing_ext_ids = set(r["external_id"] for r in existing_pids.data)
@@ -317,7 +276,6 @@ def run_import(rows, dry_run=True):
     print(f"{'='*50}")
     print(f"  Sales reps created:      {reps_created}")
     print(f"  Clients created:         {clients_created}")
-    print(f"  Client-zone links:       {cz_created}")
     print(f"  Platform ID mappings:    {pid_created}")
     print(f"{'='*50}\n")
 

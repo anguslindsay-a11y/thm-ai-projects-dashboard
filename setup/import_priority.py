@@ -29,11 +29,11 @@ EXCEL_PATH = Path(__file__).resolve().parent.parent / "data" / "Priority 4-9.xls
 SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_KEY = os.getenv("SUPABASE_KEY")
 
-# Mkt column values -> zone names in Supabase
-MKT_TO_ZONE_NAME = {
-    "CO": "Colorado",
-    "UT": "Utah",
-    "TX": "Austin",  # TX rows need special handling — could be Austin or San Antonio
+# Mkt column values -> market codes in Supabase
+MKT_TO_MARKET_CODE = {
+    "CO": "CO",
+    "UT": "UT",
+    "TX": "AU",  # TX rows default to Austin — could be Austin or San Antonio
 }
 
 
@@ -93,9 +93,9 @@ def run_import(rows, dry_run=True):
 
     sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-    # Load zones
-    zones_result = sb.table("zones").select("*").execute()
-    zone_by_name = {z["name"]: z for z in zones_result.data}
+    # Load markets
+    markets_result = sb.table("markets").select("*").execute()
+    market_by_code = {m["code"]: m for m in markets_result.data}
 
     # Load existing clients
     print("Loading existing clients...")
@@ -171,12 +171,12 @@ def run_import(rows, dry_run=True):
         else:
             # Create new client
             update_fields["name"] = name
-            # Resolve zone for primary_zone_id
+            # Resolve market for primary_market_id
             mkt = data.get("mkt")
-            if mkt and mkt in MKT_TO_ZONE_NAME:
-                zone_name = MKT_TO_ZONE_NAME[mkt]
-                if zone_name in zone_by_name:
-                    update_fields["primary_zone_id"] = zone_by_name[zone_name]["id"]
+            if mkt and mkt in MKT_TO_MARKET_CODE:
+                market_code = MKT_TO_MARKET_CODE[mkt]
+                if market_code in market_by_code:
+                    update_fields["primary_market_id"] = market_by_code[market_code]["id"]
 
             result = sb.table("clients").insert(update_fields).execute()
             client_lookup[name] = result.data[0]["id"]
