@@ -47,8 +47,39 @@ from etl.sharepoint_client import (
     SharePointAuthError,
     SharePointAPIError,
 )
-import ad_load_to_supabase as adloader  # legacy parser/matcher in scripts/
-from ad_vision_batch import parse_filename  # ditto
+import ad_load_to_supabase as adloader  # legacy matcher/index helpers in scripts/
+
+# parse_filename is inlined below rather than imported from scripts/ad_vision_batch
+# because that module imports `anthropic` at top level (for the vision pipeline)
+# which we do not need here and which isn't in requirements.txt. Keeping this
+# function inline avoids dragging that dependency into the JPG ETL.
+
+def parse_filename(filename: str) -> dict:
+    """Parse {Client}-THM{MK}-{Size}-{Zone}-{Issue}.jpg variants.
+
+    MK = CO/UT/TX/SA/AU market prefix.
+    Zone can contain & for combined zones (e.g. AUN&S, SAE&W).
+    Size can be 1-3 chars (F, Fb, BC, BCB, etc.).
+
+    Returns dict with keys: client_raw, market, size_code, zone_code, issue_code.
+    Any field that can't be parsed is set to None.
+    """
+    base = Path(filename).stem
+    # Primary pattern
+    m = re.match(
+        r"^(.+?)-THM([A-Z]{2})-([A-Za-z]+)[-\s]+([A-Z&]+)(?:-[A-Za-z0-9]+)?-(\d{4}s?)$",
+        base,
+    )
+    if m:
+        return {"client_raw": m.group(1), "market": m.group(2), "size_code": m.group(3),
+                "zone_code": m.group(4), "issue_code": m.group(5)}
+    # Fallback: size missing entirely (seen in TX)
+    m = re.match(r"^(.+?)-THM([A-Z]{2})-([A-Z&]+)-(\d{4}s?)$", base)
+    if m:
+        return {"client_raw": m.group(1), "market": m.group(2), "size_code": None,
+                "zone_code": m.group(3), "issue_code": m.group(4)}
+    return {"client_raw": base, "market": None, "size_code": None,
+            "zone_code": None, "issue_code": None}
 
 ETL_NAME = "ad_jpgs"
 SP_SITE_URL = "https://thehomemagwest.sharepoint.com/sites/Sales"
