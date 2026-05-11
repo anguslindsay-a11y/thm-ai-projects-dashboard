@@ -148,6 +148,30 @@ _STOPWORDS = frozenset({
     "home", "homes", "service", "services", "solutions", "group", "team", "works",
 })
 
+# Manual filename-to-client-name aliases discovered during cleanup passes.
+# Keys are EXACT source_client_name strings as parsed from filenames; values are
+# the canonical DB client name. Checked first in match_client so the matcher
+# doesn't have to "guess" these via fuzzy logic on every run.
+#
+# Only add entries here when the source name is unambiguous (one DB target) —
+# multi-target cases (e.g. "Rebath" splitting to Austin vs San Antonio variants)
+# need zone-aware logic and are still handled by periodic post-import SQL fixes.
+CLIENT_ALIASES = {
+    # CO
+    "J+KRoofing":              "J & K Roofing",
+    "DutchsHomeImprovement":   "Dutch's Home Improvement",
+    "OkeefeBuilt":             "O'Keefe Built",
+    "ABD":                     "ABD (Associates in Building + Design, Ltd.)",
+    # UT
+    "S_SRoofing":              "S&S Roofing",
+    # TX
+    "Total Concrete":          "Total Concrete Solutions",
+    "Rudys":                   "Rudy's Flooring & Remodeling",
+    "Carlsons":                "Carlson's Flooring",
+    "Garcia Doors":            "Garcia Doors - Austin & SA",
+    "Teagues":                 "Teague's Tree",
+}
+
 
 def match_client(raw_name: str, clients_list, idx_norm, idx_lc, ad_market_id: str | None = None) -> str | None:
     """Return client_id or None.
@@ -157,6 +181,16 @@ def match_client(raw_name: str, clients_list, idx_norm, idx_lc, ad_market_id: st
     unrelated ads — see header comment."""
     if not raw_name:
         return None
+
+    # Manual alias check — short-circuits the fuzzy logic for names that have
+    # been validated to point at a specific DB client. Market scoping still
+    # applies (an alias target won't be used for an ad in the wrong market).
+    alias_target = CLIENT_ALIASES.get(raw_name)
+    if alias_target:
+        alias_hit = idx_lc.get(alias_target.lower())
+        if alias_hit and _market_ok(alias_hit, ad_market_id):
+            return alias_hit["id"]
+
     hit = idx_lc.get(raw_name.lower())
     if hit and _market_ok(hit, ad_market_id):
         return hit["id"]
