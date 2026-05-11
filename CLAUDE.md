@@ -82,7 +82,17 @@ Real prospects (have a CallRail number, inbound calls, or other activity but no 
 - **San Antonio (SA)**: SAE (San Antonio East), SAW (San Antonio West)
 
 ## Supabase Tables
-markets, zones, sales_reps, clients, client_platform_ids, client_zones, client_phone_numbers, categories, client_categories, category_aliases, classification_log, client_reclassification_queue, magazine_issues, ad_placements, orders, calls, call_tags, qr_scans, form_submissions, client_notes
+markets, zones, sales_reps, clients, client_platform_ids, client_zones, client_phone_numbers, categories, client_categories, category_aliases, classification_log, client_reclassification_queue, magazine_issues, ad_placements, orders, calls, call_tags, qr_scans, form_submissions, client_notes, opportunities, client_activities
+
+## MagManager API integration (migration 012)
+- **Endpoints accessible on our key:** `api_ContactsGetTHM`, `api_OpportunityGetTHM`, `api_ContactActivityGetTHM`. `api_ProposalsGetTHM` is also accessible but flagged unreliable for orders — do not use. Orders/Products/PubSchedule endpoints are blocked (403) pending Mirabel access grant — `api_OrdersGetPowerBI`, `api_ProductsGetPowerBI`, `api_PubScheduleGetPowerBI`.
+- **Tenant DBs:** `thehomemagcolorado` (CO), `thehomemagutah` (UT), `thehomemagsanantonio` (covers BOTH AU and SA markets — disambiguate by `City` against `AUSTIN_METRO_CITIES` list in `etl/etl_mm_contacts.py`; treats `State` "TX" and "Texas" identically).
+- **API quirk:** Calls WITHOUT `DatabaseName` param only return the base-URL tenant (CO). ETL must iterate per-tenant explicitly. See `etl/magmanager_client.py`.
+- **Identity:** `clients.mm_global_id` (`{tenant_id}-{customerID}`, e.g. `'2400-1618'`) is the canonical cross-DB identifier. `(mm_database, mm_customer_id)` is the per-DB natural key. Legacy `client_platform_ids.external_id` format `MM-{zone}-{cid}` still works as a bridge during reconciliation.
+- **`is_mm_only` flag** on clients: TRUE for the ~32,854 contacts ingested via MM API that had no other data source. Flip to FALSE when any non-MM data (order/call/ad/IA) arrives. Reports that exclude prospects should use `WHERE NOT is_mapping_stub AND NOT is_mm_only` for the "core book" view, or omit `is_mm_only` for the full prospect cohort.
+- **MM Category → `client_categories`:** MM `Category` JSON array piped through `category_aliases` (with `source='mm_value'` on alias additions) → upserted into `client_categories` with `source='mm_api'`. Existing primary tags preserved; MM categories add as primary ONLY when client has no prior primary.
+- **CallTrackNotes:** MM is source of truth — ETL overwrites `clients.call_tracking_notes` on sync. Diffs logged to `etl_runs.notes` for manual review (alerts shrinkage/expansion).
+- **Skip-if-unchanged:** ETL compares `clients.mm_date_modified` against MM's `DateLastModified` and skips rows where the timestamp prefix matches. Re-runs are cheap (~30 sec for all 33,954 contacts).
 
 ## Category Taxonomy (use junction, NOT clients.category)
 - **Flat 2-tier hierarchy:** 27 top-level categories + ~85 subcategories. NO groups layer. See `docs/category_taxonomy.md` for the full tree.
@@ -100,8 +110,21 @@ markets, zones, sales_reps, clients, client_platform_ids, client_zones, client_p
 - `client_phone_numbers` — secondary table parsed from notes. Holds tracking #, destination #, in-ad # with placement (Bookmark/PopOut/IA/etc.) and business line (Sales/Service/Roofing/HVAC). **Enrichment only — never overrides zone or platform mappings.** Filter `AND NOT is_historical` for current state.
 - See `docs/call_tracking_data_model.md` for full query patterns + the CallRail hygiene audit.
 
-## Scheduled Tasks (Windows Task Scheduler)
-Staggered to avoid contention. The watchdog at 11 AM emails an alert if anything failed.
+## Scheduled Jobs (cloud + local mix)
+
+**Strategy:** API-driven ETLs run in GitHub Actions (machine-independent, survives laptop being off). Local-only tasks (watchdog needs to read local Task Scheduler state, AutoTag depends on local folder) stay on Windows Task Scheduler.
+
+### GitHub Actions (cloud, .github/workflows/*)
+| UTC time | Workflow | Frequency | File |
+|---|---|---|---|
+| 12:00 daily | MagManager — Contacts + Opportunities + Activities | Daily | `etl-magmanager.yml` |
+| 15:00 Fri | Ad Pipeline — Placements + JPGs | Weekly | `etl-ad-pipeline.yml` |
+| TBD | Inbox Advantage | Weekly | `etl-inbox-advantage.yml` |
+
+Workflow runs write a row to `etl_runs` on success; failures email via GitHub's built-in notifications. Manual runs via "Run workflow" button in GitHub Actions UI (supports dry-run input).
+
+### Windows Task Scheduler (local-state required)
+Staggered to avoid contention. The watchdog at 11 AM emails alerts.
 
 | Time | Task | Frequency | Script |
 |---|---|---|---|
@@ -109,9 +132,20 @@ Staggered to avoid contention. The watchdog at 11 AM emails an alert if anything
 | 08:30 | THM Data Hub - Daily CallRail ETL | Daily | `etl/etl_callrail.py` |
 | 09:00 | CallRail Daily AutoTag | Daily | `Callrail Tagging/daily_autotag.bat` (separate folder) |
 | 10:00 | THM Data Hub - Weekly Category Maintenance | Mondays | `scripts/maintain_categories.py` |
-| 11:00 | **THM Data Hub - Daily Task Watchdog** | Daily | `scripts/task_watchdog.py` — emails alert if any task in last 36h failed |
+| 11:00 | **THM Data Hub - Daily Task Watchdog** | Daily | `scripts/task_watchdog.py` — emails alert if any local task in last 36h failed |
 
-Adding a new scheduled task: add it to the table above, pick a time slot that doesn't collide, and confirm the watchdog will pick up its name (matches `THM|CallRail` substring in `WATCHED_PATTERNS`).
+The watchdog only sees local tasks. For cloud-job monitoring use the unified `etl_runs` query:
+```sql
+SELECT etl_name, MAX(finished_at) AS last_run, bool_or(success) AS recent_success
+FROM etl_runs WHERE finished_at > NOW() - interval '26 hours'
+GROUP BY etl_name;
+```
+
+Adding a new job:
+- **API-driven, no local files needed → GitHub Actions** (preferred for everything new)
+- **Needs local files / local task state → Windows Task Scheduler**, add to table above, pick a time slot that doesn't collide, name with `THM Data Hub` prefix so watchdog picks it up.
+
+`scripts/run_mm_daily_etl.bat` exists as a local fallback for ad-hoc runs; primary scheduling is the GitHub workflow.
 
 ## Key Views
 - client_performance_snapshot: key metrics for active clients (joins to markets)
@@ -149,14 +183,18 @@ thm-data-hub/
 
 ## Current Status
 - Supabase project live with markets/zones schema (4 markets, 11 zones)
-- 2,966 clients, 41,067 orders, 73,580 calls, 8,368 QR scans imported
-- Client status auto-synced from orders: 437 active, 54 cancelled, 289 expired, 361 dormant, 1,825 prospect
-- 1,306 of those prospects are flagged `is_mapping_stub=TRUE` (exclude from analytics)
+- **35,835 clients** (32,854 ingested fresh from MM API w/ `is_mm_only=true`, 2,981 pre-existing)
+- 41,067 orders, 73,580 calls, 8,368 QR scans imported
+- 35,482 clients with MM `priority` populated; 26,739 MM-API category junction rows added (clients with primary tag: 27,426)
+- Client status auto-synced from orders: derived from orders table (most new MM-only contacts are `status='prospect'`)
+- `is_mapping_stub=TRUE` on 1,306 ghost rows (legacy mapping spreadsheet stubs)
+- `is_mm_only=TRUE` on 32,854 rows (fresh MM API contacts, no other data source yet)
 - 22 case-duplicate clients merged (Apex Clean Air, Handyman Hub, Brothers That Just Do Gutters, McIntire Roofing, Utah Led, etc.)
 - All analytic views rebuilt on `calls_enriched` with `is_test_call` flag; test calls count toward volume but excluded from qualified/missed
 - client_zones rebuilt from order data
 - CallRail ETL operational (Mondays 7am via Task Scheduler), Uniqode/IA/Ads imported via weekly refresh
-- Some clients have NULL primary_market_id (Cross-Market/Uniqode entries)
+- MagManager API: contacts ETL operational (`etl/etl_mm_contacts.py`); opportunities + activities ETL pending; orders/products/pubschedule endpoints pending Mirabel access grant
+- 58 SA-database contacts skipped during MM sync (legitimately out-of-state cross-book / national accounts — OK, GA, CA, AZ, PA)
 
 ## Important Notes
 - Rate card pricing is sensitive and must never appear in outputs
