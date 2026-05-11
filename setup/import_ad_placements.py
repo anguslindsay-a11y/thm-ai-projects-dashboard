@@ -254,7 +254,18 @@ def parse_issue_code(issue_raw):
     return year, month, is_spring
 
 
-def run(dry_run=True):
+def run(dry_run=True, sources=None):
+    """Parse the ad-placement spreadsheets and upsert ad_placements rows.
+
+    sources: optional list of dicts, one per spreadsheet, each with keys:
+        - workbook    (openpyxl Workbook, e.g. from SharePoint download)
+        - market_code (str, 'CO' or 'UT')
+        - label       (str, free-form for log output)
+      If None, uses the module-global FILES list and opens workbooks from disk
+      (legacy CLI behavior, unchanged).
+
+    Returns a dict of counts suitable for ETL audit logging.
+    """
     sb = create_client(SUPABASE_URL, SUPABASE_KEY)
 
     # Load lookups
@@ -361,20 +372,41 @@ def run(dry_run=True):
     failed_to_parse = []
     unmatched_clients = {}
 
-    for path, market_code in FILES:
-        if not path.exists():
-            print(f"\nWARNING: {path} not found, skipping")
-            continue
+    # Build the iteration set: either the caller's sources, or fall back to
+    # opening files listed in module-global FILES.
+    if sources is None:
+        sources = [
+            {"path": p, "market_code": m, "workbook": None, "label": p.name}
+            for (p, m) in FILES
+        ]
+
+    for src in sources:
+        market_code = src["market_code"]
+        workbook = src.get("workbook")
+        label = src.get("label") or market_code
+
+        if workbook is None:
+            path = src.get("path")
+            if not path or not Path(path).exists():
+                print(f"\nWARNING: {path} not found, skipping")
+                continue
+            print(f"\nReading {Path(path).name}...")
+            wb = load_workbook(str(path), read_only=True, data_only=True)
+        else:
+            print(f"\nReading {label}...")
+            wb = workbook
 
         market = market_by_code.get(market_code)
         market_id = market["id"] if market else None
 
-        print(f"\nReading {path.name}...")
-        wb = load_workbook(str(path), read_only=True, data_only=True)
         ws = wb[wb.sheetnames[0]]
 
-        # Headers are on row 2 (row 1 is the title)
-        for row in ws.iter_rows(min_row=3, values_only=True):
+        # Skip rows 1 (title or header) — start scanning from row 2.
+        # parse_issue_code() returns None for the literal "Issue" header text,
+        # so a header row at position 2 is rejected harmlessly. This was
+        # changed from min_row=3 because the UT spreadsheet has its header on
+        # row 1 (no title row), and min_row=3 was silently dropping row 2 data.
+        for row in ws.iter_rows(min_row=2, values_only=True):
             issue_raw = row[0]
             zone_raw = row[1]
             filename = row[2]
@@ -464,7 +496,17 @@ def run(dry_run=True):
 
     if dry_run:
         print("\n  DRY RUN - no data written")
-        return
+        return {
+            "rows_planned": len(rows_to_insert),
+            "rows_matched_client": matched,
+            "rows_unmatched_client": len(rows_to_insert) - matched,
+            "rows_with_size": sized,
+            "rows_failed_parse": len(failed_to_parse),
+            "skipped_no_filename": skipped_no_filename,
+            "skipped_no_zone": skipped_no_zone,
+            "unique_unmatched_client_names": len(unmatched_clients),
+            "rows_upserted": 0,
+        }
 
     # Insert in batches with conflict handling
     print(f"\nInserting {len(rows_to_insert)} placements...")
@@ -494,6 +536,18 @@ def run(dry_run=True):
     print(f"\n{'='*60}")
     print(f"  COMPLETE - {inserted} placements inserted")
     print(f"{'='*60}")
+
+    return {
+        "rows_planned": len(rows_to_insert),
+        "rows_matched_client": matched,
+        "rows_unmatched_client": len(rows_to_insert) - matched,
+        "rows_with_size": sized,
+        "rows_failed_parse": len(failed_to_parse),
+        "skipped_no_filename": skipped_no_filename,
+        "skipped_no_zone": skipped_no_zone,
+        "unique_unmatched_client_names": len(unmatched_clients),
+        "rows_upserted": inserted,
+    }
 
 
 def main():

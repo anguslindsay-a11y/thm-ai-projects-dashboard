@@ -150,36 +150,80 @@ class SharePointClient:
         r = self._get(endpoint)
         return r.json()["id"]
 
-    def _drive_path_url(self, site_id: str, path: str, suffix: str) -> str:
+    def _drive_path_url(
+        self, site_id: str, path: str, suffix: str, drive_id: str | None = None
+    ) -> str:
         """Build a path-addressed DriveItem URL.
 
-        Graph syntax: /drive/root:/{path}{suffix}
-          - metadata: suffix=""
+        Graph syntax:
+          default library:    /sites/{site}/drive/root:/{path}{suffix}
+          named library:      /sites/{site}/drives/{drive}/root:/{path}{suffix}
+
+          - metadata:         suffix=""
           - listing children: suffix=":/children"
           - download content: suffix=":/content"
         """
         encoded = quote(path.strip("/"), safe="/")
-        return f"/sites/{site_id}/drive/root:/{encoded}{suffix}"
+        drive_seg = f"drives/{drive_id}" if drive_id else "drive"
+        return f"/sites/{site_id}/{drive_seg}/root:/{encoded}{suffix}"
 
-    def list_drive_root(self, site_id: str, top: int = 25) -> list:
-        """List items at the root of the default document library."""
-        r = self._get(f"/sites/{site_id}/drive/root/children?$top={top}")
+    def list_drives(self, site_id: str) -> list:
+        """List all document libraries (drives) on a site."""
+        r = self._get(f"/sites/{site_id}/drives")
         return r.json().get("value", [])
 
-    def list_folder(self, site_id: str, folder_path: str, top: int = 100) -> list:
-        """List items in a folder by server-relative path within the default library."""
+    def resolve_drive_id(self, site_id: str, library_name: str) -> str:
+        """Look up a named library and return its drive ID.
+
+        Use for non-default libraries like 'Sales Corner'. Default doc-library
+        access (no drive_id needed) goes through the simpler /drive endpoint.
+        """
+        drives = self.list_drives(site_id)
+        target = library_name.strip().lower()
+        matches = [d for d in drives if (d.get("name") or "").strip().lower() == target]
+        if not matches:
+            available = [d.get("name") for d in drives]
+            raise SharePointAPIError(
+                f"Library '{library_name}' not found on this site. "
+                f"Available libraries: {available}"
+            )
+        return matches[0]["id"]
+
+    def list_drive_root(self, site_id: str, top: int = 25,
+                         drive_id: str | None = None) -> list:
+        """List items at the root of the default doc library (or a named one)."""
+        drive_seg = f"drives/{drive_id}" if drive_id else "drive"
+        r = self._get(f"/sites/{site_id}/{drive_seg}/root/children?$top={top}")
+        return r.json().get("value", [])
+
+    def list_folder(self, site_id: str, folder_path: str, top: int = 200,
+                     drive_id: str | None = None, paginate: bool = True) -> list:
+        """List items in a folder by server-relative path. Follows @odata.nextLink
+        when paginate=True so callers don't truncate at $top.
+        """
         path = folder_path.strip("/")
         if not path:
-            return self.list_drive_root(site_id, top=top)
-        r = self._get(self._drive_path_url(site_id, path, f":/children?$top={top}"))
-        return r.json().get("value", [])
+            return self.list_drive_root(site_id, top=top, drive_id=drive_id)
+        url = self._drive_path_url(site_id, path, f":/children?$top={top}", drive_id)
+        items = []
+        while url:
+            r = self._get(url)
+            payload = r.json()
+            items.extend(payload.get("value", []))
+            next_link = payload.get("@odata.nextLink")
+            if not paginate or not next_link:
+                break
+            url = next_link  # already a fully-qualified URL
+        return items
 
-    def get_file_metadata(self, site_id: str, file_path: str) -> dict:
+    def get_file_metadata(self, site_id: str, file_path: str,
+                          drive_id: str | None = None) -> dict:
         """Return Graph DriveItem metadata (id, size, eTag, lastModified, etc.)."""
-        r = self._get(self._drive_path_url(site_id, file_path, ""))
+        r = self._get(self._drive_path_url(site_id, file_path, "", drive_id))
         return r.json()
 
-    def download_file_bytes(self, site_id: str, file_path: str) -> bytes:
-        """Download a file from the default doc library into memory."""
-        r = self._get(self._drive_path_url(site_id, file_path, ":/content"))
+    def download_file_bytes(self, site_id: str, file_path: str,
+                            drive_id: str | None = None) -> bytes:
+        """Download a file into memory. Pass drive_id for non-default libraries."""
+        r = self._get(self._drive_path_url(site_id, file_path, ":/content", drive_id))
         return r.content
