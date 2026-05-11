@@ -157,22 +157,52 @@ _STOPWORDS = frozenset({
 # multi-target cases (e.g. "Rebath" splitting to Austin vs San Antonio variants)
 # need zone-aware logic and are still handled by periodic post-import SQL fixes.
 CLIENT_ALIASES = {
+    # ---- Pass 1: initial cleanup ----
     # CO
-    "J+KRoofing":                  "J & K Roofing",
-    "J+KRoofing-Windows":          "J & K Roofing",   # windows division, same parent
-    "DutchsHomeImprovement":       "Dutch's Home Improvement",
-    "OkeefeBuilt":                 "O'Keefe Built",
-    "ABD":                         "ABD (Associates in Building + Design, Ltd.)",
-    "ABD Associates in Building":  "ABD (Associates in Building + Design, Ltd.)",
+    "J+KRoofing":                       "J & K Roofing",
+    "J+KRoofing-Windows":               "J & K Roofing",   # windows division, same parent
+    "DutchsHomeImprovement":            "Dutch's Home Improvement",
+    "OkeefeBuilt":                      "O'Keefe Built",
+    "ABD":                              "ABD (Associates in Building + Design, Ltd.)",
+    "ABD Associates in Building":       "ABD (Associates in Building + Design, Ltd.)",
     # UT
-    "S_SRoofing":                  "S&S Roofing",
-    "S & S Roofing":               "S&S Roofing",
+    "S_SRoofing":                       "S&S Roofing",
+    "S & S Roofing":                    "S&S Roofing",
     # TX
-    "Total Concrete":              "Total Concrete Solutions",
-    "Rudys":                       "Rudy's Flooring & Remodeling",
-    "Carlsons":                    "Carlson's Flooring",
-    "Garcia Doors":                "Garcia Doors - Austin & SA",
-    "Teagues":                     "Teague's Tree",
+    "Total Concrete":                   "Total Concrete Solutions",
+    "Rudys":                            "Rudy's Flooring & Remodeling",
+    "Carlsons":                         "Carlson's Flooring",
+    "Garcia Doors":                     "Garcia Doors - Austin & SA",
+    "Teagues":                          "Teague's Tree",
+
+    # ---- Pass 2: triage worksheet 2026-05-11 ----
+    # CO
+    "UniqueHVAC":                       "Unique Heating & Air",
+    "MajesticRailings":                 "Majestic Railings & Flooring",
+    "Dun Rite Kitchen & Bath":          "Dun-Rite Kitchens & Baths",
+    "Dun Rite Windows & Doors":         "Dun-Rite Kitchens & Baths",  # cross-division, same parent
+    "DenverDoors+Closets":              "Denver Doors & Closets (One Day Doors & Closets)",
+    "UnderCoverSystems":                "Undercover Systems",
+    "Under Cover Systems":              "Undercover Systems",
+    "AroundtheHouse-EclipseAwnings":    "Around the House / Sunesta",
+    "All Seasons Flooring":             "All Seasons Painting & Remodeling - EPC",
+    "3DayBlinds":                       "3 Day Blinds c/o Incremental Media, Inc",
+    "THMCOHandymanHub":                 "Handyman Hub",
+    # UT
+    "5StarWDKB":                        "5 Star Kitchen & Bath",
+    "TruCoEnterprisesTree":             "TruCo Enterprises (Tree Division)",
+    "BoydsCustomPatios":                "Boyds Custom Patios",
+    "SandandSwirl":                     "Sand & Swirl, Inc.",
+    "BTLRemodels+Pools":                "BTL Remodels & Pools",
+    "Closet Factory":                   "Closet Factory",
+    "Technicolor Lighting":             "TechniColor Lightning",  # spelling intentional per the DB
+    "Organizing Joy":                   "Organize Joy",
+    "SafeRacksofUtah":                  "THM National - SafeRacks",
+    "RR General Contractor":            "R&R General Contractor",
+    # TX
+    "Latham Pools":                     "Latham The Pool Company - Austin",
+    "Sunrooms4You":                     "Creative Sunrooms, LLC - San Antonio",
+    "Archadeck AU":                     "Archadeck of Austin",
 }
 
 
