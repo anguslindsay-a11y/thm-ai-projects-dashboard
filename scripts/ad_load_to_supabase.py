@@ -158,18 +158,21 @@ _STOPWORDS = frozenset({
 # need zone-aware logic and are still handled by periodic post-import SQL fixes.
 CLIENT_ALIASES = {
     # CO
-    "J+KRoofing":              "J & K Roofing",
-    "DutchsHomeImprovement":   "Dutch's Home Improvement",
-    "OkeefeBuilt":             "O'Keefe Built",
-    "ABD":                     "ABD (Associates in Building + Design, Ltd.)",
+    "J+KRoofing":                  "J & K Roofing",
+    "J+KRoofing-Windows":          "J & K Roofing",   # windows division, same parent
+    "DutchsHomeImprovement":       "Dutch's Home Improvement",
+    "OkeefeBuilt":                 "O'Keefe Built",
+    "ABD":                         "ABD (Associates in Building + Design, Ltd.)",
+    "ABD Associates in Building":  "ABD (Associates in Building + Design, Ltd.)",
     # UT
-    "S_SRoofing":              "S&S Roofing",
+    "S_SRoofing":                  "S&S Roofing",
+    "S & S Roofing":               "S&S Roofing",
     # TX
-    "Total Concrete":          "Total Concrete Solutions",
-    "Rudys":                   "Rudy's Flooring & Remodeling",
-    "Carlsons":                "Carlson's Flooring",
-    "Garcia Doors":            "Garcia Doors - Austin & SA",
-    "Teagues":                 "Teague's Tree",
+    "Total Concrete":              "Total Concrete Solutions",
+    "Rudys":                       "Rudy's Flooring & Remodeling",
+    "Carlsons":                    "Carlson's Flooring",
+    "Garcia Doors":                "Garcia Doors - Austin & SA",
+    "Teagues":                     "Teague's Tree",
 }
 
 
