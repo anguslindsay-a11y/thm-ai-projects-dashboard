@@ -230,6 +230,33 @@ def main():
         if c.get("mm_database") and c.get("mm_customer_id") is not None
     }
 
+    # 4th-tier identity bridge: real clients (no MM identity yet, not stubs)
+    # keyed by (normalized name, primary_market_id). When MM gives us a contact
+    # whose mm_global_id / db+cid / legacy MM-{zone}-{cid} don't match anything
+    # but its name+market matches an existing real client, attach MM identity
+    # to that existing row instead of inserting a duplicate. Same-name clients
+    # in different markets stay as separate accounts (Apex CO vs Apex UT).
+    name_market_pool: dict[tuple[str, str], dict | None] = {}
+    for ec in existing_clients:
+        if ec.get("mm_database"):
+            continue  # already linked to MM
+        if ec.get("is_mapping_stub"):
+            continue  # ghosts are never auto-attach targets
+        if not ec.get("primary_market_id"):
+            continue  # can't disambiguate market
+        nm = (ec.get("name") or "").strip().lower()
+        if not nm:
+            continue
+        key = (nm, ec["primary_market_id"])
+        # If multiple real clients share name+market, mark ambiguous (skip auto-match)
+        # by setting to None — safer to leave for manual review than to guess wrong.
+        if key in name_market_pool:
+            name_market_pool[key] = None
+        else:
+            name_market_pool[key] = ec
+    by_name_market = {k: v for k, v in name_market_pool.items() if v is not None}
+    print(f"  name+market auto-attach candidates: {len(by_name_market):,}")
+
     # Legacy MM platform_ids
     legacy_lookup = {}
     offset = 0
@@ -344,6 +371,12 @@ def main():
     ct_diffs: list[dict] = []                # call_tracking_notes diffs to log
     priority_diffs: list[dict] = []          # priority changes to log
     skipped_no_market: list[dict] = []
+    cross_tenant_collisions: list[dict] = [] # multi-tenant ping-pong: existing
+                                             # client claimed by one MM tenant,
+                                             # incoming contact is from a
+                                             # different tenant. Skip to avoid
+                                             # overwriting the other tenant's
+                                             # data; flag for manual split.
 
     unmapped_categories: Counter[str] = Counter()
     stats_by_db = defaultdict(lambda: Counter())
@@ -357,7 +390,7 @@ def main():
         market_code = market_code_for_contact(c)
         market_id = market_id_by_code.get(market_code) if market_code else None
 
-        # Resolve identity
+        # Resolve identity (highest-confidence match first)
         existing = None
         if global_id and global_id in by_mm_global_id:
             existing = by_mm_global_id[global_id]
@@ -366,11 +399,38 @@ def main():
         elif (db, cid) in legacy_lookup:
             # Bridge: legacy client_platform_ids hit but no mm_global_id set yet
             cid_match = legacy_lookup[(db, cid)]
-            # Find that client
             for ec in existing_clients:
                 if ec["id"] == cid_match:
                     existing = ec
                     break
+        else:
+            # 4th tier: name+market auto-attach. Only matches real clients
+            # (no MM identity, not stubs). Same-name in different market is
+            # a separate account by design — Apex CO != Apex UT.
+            mm_name = (c.get("Customer") or "").strip().lower()
+            if mm_name and market_id:
+                cand = by_name_market.get((mm_name, market_id))
+                if cand:
+                    existing = cand
+                    stats_by_db[db]["matched_by_name_market"] += 1
+
+        # Cross-tenant collision guard: if we matched an existing client whose
+        # mm_database is set to a DIFFERENT MM tenant than this incoming
+        # contact, applying this update would overwrite the other tenant's
+        # identity (the daily-ETL ping-pong problem). Skip and flag for
+        # manual split. Affects ~6 known clients with multi-tenant legacy
+        # platform_ids (Apex Clean Air, Handyman Hub, etc.) until those are
+        # split into per-market rows post-Orders-endpoint refresh.
+        if existing and existing.get("mm_database") and existing["mm_database"] != db:
+            stats_by_db[db]["skip_cross_tenant_collision"] += 1
+            cross_tenant_collisions.append({
+                "client_id": existing["id"],
+                "client_name": existing.get("name"),
+                "claimed_by_mm_database": existing["mm_database"],
+                "incoming_mm_database": db,
+                "incoming_mm_customer_id": cid,
+            })
+            continue
 
         # Build the MM-side fields (common to insert + update)
         priority_values = parse_json_array(c.get("Priority"), "priority")
@@ -484,6 +544,11 @@ def main():
     if unmapped_categories:
         print(f"    (top 5: {unmapped_categories.most_common(5)})")
     print(f"  call_tracking_notes diffs flagged: {len(ct_diffs):,}")
+    print(f"  cross-tenant collisions skipped: {len(cross_tenant_collisions):,}")
+    if cross_tenant_collisions:
+        for x in cross_tenant_collisions[:10]:
+            print(f"    {x['client_name']}: claimed by {x['claimed_by_mm_database']}, "
+                  f"incoming {x['incoming_mm_database']}/{x['incoming_mm_customer_id']}")
     print(f"  priority changes flagged: {len(priority_diffs):,}")
     if priority_diffs:
         transitions = Counter(
@@ -619,6 +684,8 @@ def main():
         "unmapped_categories": dict(unmapped_categories.most_common(20)),
         "ct_notes_diffs_count": len(ct_diffs),
         "ct_notes_diffs_first10": ct_diffs[:10],
+        "cross_tenant_collisions_count": len(cross_tenant_collisions),
+        "cross_tenant_collisions": cross_tenant_collisions,
         "priority_diffs_count": len(priority_diffs),
         "priority_diffs_transitions": dict(Counter(
             f"{d['old'] or '(empty)'} -> {d['new'] or '(empty)'}"
