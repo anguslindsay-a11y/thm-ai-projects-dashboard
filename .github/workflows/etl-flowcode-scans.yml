@@ -1,0 +1,84 @@
+name: Flowcode — QR Scan Ingest
+
+# Daily pull of Flowcode QR-scan totals into qr_scan_daily.
+#
+# Why daily even though most TX codes aren't in print yet: this is the
+# transport for capturing scans the moment a magazine drops. Running daily
+# means the current-month bucket is always fresh (idempotent re-fetch of
+# the same Suite returns the latest cumulative monthly total -> upsert).
+#
+# Granularity:
+#   Flowcode's GetConversionRateSummary auto-coarsens to PERIOD_MONTH for
+#   ranges > ~30 days. We pull the full lifetime range each day so the
+#   current-month bucket grows as scans roll in. Older months are stable
+#   monthly aggregates. If true daily resolution is needed later, add a
+#   chunked 28-day-window mode + a `period` column on qr_scan_daily.
+#
+# Idempotency:
+#   Each scan row's primary key is a deterministic UUID hashed from
+#   (suite_id, scan_date, timezone). Re-runs upsert in place; never dupe.
+#
+# Schedule:
+#   13:00 UTC daily (~7 AM MDT). Runs *after* the MagManager job at 12:00
+#   so client_platform_ids has the latest TX client rows.
+#
+# Required repo secrets (add these in GitHub Settings -> Secrets):
+#   SUPABASE_URL, SUPABASE_KEY
+#   FLOWCODE_CLIENT_ID, FLOWCODE_API_KEY, FLOWCODE_ORG_ID, FLOWCODE_WORKSPACE_ID
+
+on:
+  schedule:
+    - cron: "0 13 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run — fetch but don't write"
+        type: boolean
+        required: false
+        default: false
+      start_date:
+        description: "Override start date (YYYY-MM-DD). Default = full history (2022-01-01)."
+        type: string
+        required: false
+        default: ""
+
+permissions:
+  contents: read
+
+# Don't let two runs race on the same upsert keys.
+concurrency:
+  group: flowcode-scans-etl
+  cancel-in-progress: false
+
+jobs:
+  ingest:
+    name: Flowcode Scan Ingest
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    env:
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      FLOWCODE_CLIENT_ID: ${{ secrets.FLOWCODE_CLIENT_ID }}
+      FLOWCODE_API_KEY: ${{ secrets.FLOWCODE_API_KEY }}
+      FLOWCODE_ORG_ID: ${{ secrets.FLOWCODE_ORG_ID }}
+      FLOWCODE_WORKSPACE_ID: ${{ secrets.FLOWCODE_WORKSPACE_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Ingest Flowcode scans
+        run: |
+          python etl/etl_flowcode_scans.py \
+            ${{ (github.event_name == 'workflow_dispatch' && inputs.dry_run) && '--dry-run' || '--commit' }} \
+            ${{ (github.event_name == 'workflow_dispatch' && inputs.start_date != '') && format('--start {0}', inputs.start_date) || '' }}
