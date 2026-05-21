@@ -1,0 +1,1855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>THM AI Projects Dashboard</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  /* THM brand */
+  --indigo:       #223a5c;
+  --indigo-deep:  #0d2038;
+  --indigo-soft:  #2d4a73;
+  --cadet:        #a2b4c0;
+  --cadet-soft:   #c8d2da;
+  --timber:       #d9d4d0;
+  --timber-soft:  #f5f4f2;
+  --paper:        #faf9f7;
+  --hairline:     #e4e1dd;
+
+  /* Semantic surfaces */
+  --bg-app:       #f5f4f2;
+  --bg-surface:   #ffffff;
+  --bg-panel:     #faf9f7;
+  --bg-row-alt:   #fbfaf8;
+  --bg-row-hover: #f0eeeb;
+
+  /* Text */
+  --fg-strong:    #0d2038;
+  --fg-body:      #1f2c3e;
+  --fg-muted:     #5b6878;
+  --fg-faint:     #8b95a3;
+
+  /* Status semantics — tuned to sit alongside the indigo palette */
+  --status-backlog-bg:    #ecebe8;  --status-backlog-fg:    #4a5b72;
+  --status-discovery-bg:  #e8e6f1;  --status-discovery-fg:  #4b3f8a;
+  --status-progress-bg:   #dfe6f2;  --status-progress-fg:   #223a5c;
+  --status-review-bg:     #fbeed3;  --status-review-fg:     #7a5310;
+  --status-live-bg:       #d8ebe0;  --status-live-fg:       #1f6a47;
+  --status-hold-bg:       #fadfc7;  --status-hold-fg:       #8a4a16;
+  --status-cancelled-bg:  #e6e3e0;  --status-cancelled-fg:  #6f7785;
+
+  --danger-bg:    #f8dedc;  --danger-fg:    #9a2a22;
+  --warn-bg:      #fbeed3;  --warn-fg:      #7a5310;
+  --ok-bg:        #d8ebe0;  --ok-fg:        #1f6a47;
+
+  /* Tokens */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-pill: 999px;
+
+  --shadow-1: 0 1px 2px rgba(13, 32, 56, 0.06), 0 1px 1px rgba(13, 32, 56, 0.04);
+  --shadow-2: 0 4px 14px rgba(13, 32, 56, 0.08), 0 2px 4px rgba(13, 32, 56, 0.04);
+  --shadow-3: 0 16px 40px rgba(13, 32, 56, 0.18), 0 4px 10px rgba(13, 32, 56, 0.08);
+  --focus-ring: 0 0 0 3px rgba(34, 58, 92, 0.22);
+
+  --ease: cubic-bezier(0.2, 0, 0.2, 1);
+  --dur:  180ms;
+
+  --font-headline: 'Poppins', system-ui, -apple-system, sans-serif;
+  --font-body:     'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-sub:      'Oswald', 'Poppins', sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-body);
+  background: var(--bg-app);
+  color: var(--fg-body);
+  line-height: 1.5;
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-headline);
+  color: var(--fg-strong);
+  letter-spacing: -0.01em;
+  margin: 0;
+}
+
+button, input, select, textarea { font-family: inherit; }
+
+::selection { background: rgba(34, 58, 92, 0.18); }
+
+/* =========================================================================
+   HEADER
+   ========================================================================= */
+header {
+  background: linear-gradient(180deg, var(--indigo) 0%, var(--indigo-deep) 100%);
+  color: #fff;
+  padding: 18px 32px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  position: sticky;
+  top: 0;
+  z-index: 20;
+}
+header .brand {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+header .brand-mark {
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.6);
+}
+header .brand-mark svg { width: 22px; height: 22px; }
+header .brand-text { display: flex; flex-direction: column; min-width: 0; }
+header h1 {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.005em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+header .eyebrow {
+  font-family: var(--font-sub);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--cadet);
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+header .meta {
+  font-size: 12px;
+  color: var(--cadet-soft);
+  margin-top: 3px;
+  font-weight: 500;
+}
+
+header .user-block {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+}
+header .who {
+  color: rgba(255,255,255,0.85);
+  padding-right: 6px;
+  border-right: 1px solid rgba(255,255,255,0.15);
+  margin-right: 4px;
+  font-weight: 500;
+}
+header .btn-header {
+  background: rgba(255,255,255,0.08);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.18);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+header .btn-header:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.3); }
+header .btn-primary {
+  background: #fff;
+  color: var(--indigo);
+  border-color: #fff;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+}
+header .btn-primary:hover { background: var(--timber-soft); border-color: var(--timber-soft); color: var(--indigo-deep); }
+
+/* =========================================================================
+   LAYOUT
+   ========================================================================= */
+main {
+  padding: 28px 32px 80px;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+/* =========================================================================
+   LOGIN
+   ========================================================================= */
+.login-wrap {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(1200px 600px at 20% -10%, rgba(162,180,192,0.18), transparent 60%),
+    radial-gradient(900px 500px at 100% 100%, rgba(34,58,92,0.18), transparent 60%),
+    linear-gradient(135deg, var(--indigo-deep) 0%, var(--indigo) 60%, var(--indigo-soft) 100%);
+  padding: 24px;
+  font-family: var(--font-body);
+}
+.login-card {
+  background: #fff;
+  padding: 40px 36px 32px;
+  border-radius: var(--radius-lg);
+  max-width: 440px;
+  width: 100%;
+  box-shadow: var(--shadow-3);
+}
+.login-card .login-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+.login-card .login-brand .mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: var(--indigo);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.login-card .login-brand .mark svg { width: 24px; height: 24px; }
+.login-card .login-brand .name {
+  font-family: var(--font-sub);
+  font-size: 11px;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.login-card h2 {
+  margin: 0 0 8px;
+  color: var(--fg-strong);
+  font-size: 22px;
+  font-weight: 700;
+}
+.login-card .login-sub {
+  color: var(--fg-muted);
+  font-size: 14px;
+  margin: 0 0 24px;
+}
+.login-card label {
+  display: block;
+  font-size: 11px;
+  color: var(--fg-body);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+.login-card input {
+  width: 100%;
+  padding: 11px 13px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  font-size: 14px;
+  background: var(--paper);
+  color: var(--fg-strong);
+  margin-bottom: 16px;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.login-card input:focus {
+  outline: none;
+  border-color: var(--indigo);
+  background: #fff;
+  box-shadow: var(--focus-ring);
+}
+.login-card button {
+  width: 100%;
+  background: var(--indigo);
+  color: #fff;
+  border: none;
+  padding: 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.login-card button:hover { background: var(--indigo-deep); }
+.login-card button:active { transform: translateY(1px); }
+.login-card button:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* Tabs (Password / Email code) — inline styles in markup do the heavy lifting,
+   we just polish here */
+.login-tab { transition: background var(--dur) var(--ease), color var(--dur) var(--ease) !important; }
+
+.login-msg {
+  font-size: 13px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+.login-msg.ok  { background: var(--ok-bg);     color: var(--ok-fg); }
+.login-msg.err { background: var(--danger-bg); color: var(--danger-fg); }
+
+/* =========================================================================
+   KPI CARDS
+   ========================================================================= */
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 14px;
+  margin-bottom: 24px;
+}
+.kpi {
+  background: var(--bg-surface);
+  padding: 18px 20px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+  position: relative;
+  overflow: hidden;
+}
+.kpi::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 3px;
+  background: var(--cadet);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.kpi:hover {
+  border-color: var(--cadet);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-1);
+}
+.kpi:hover::before { opacity: 1; }
+.kpi.active {
+  border-color: var(--indigo);
+  box-shadow: 0 0 0 1px var(--indigo), var(--shadow-1);
+  background: linear-gradient(180deg, #fff 0%, var(--paper) 100%);
+}
+.kpi.active::before { opacity: 1; background: var(--indigo); }
+.kpi .num {
+  font-family: var(--font-headline);
+  font-size: 30px;
+  font-weight: 700;
+  color: var(--indigo);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+.kpi .label {
+  font-family: var(--font-sub);
+  font-size: 11px;
+  color: var(--fg-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  display: block;
+  margin-top: 8px;
+  font-weight: 600;
+}
+
+/* =========================================================================
+   FILTERS
+   ========================================================================= */
+.filters {
+  background: var(--bg-surface);
+  padding: 14px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline);
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-1);
+}
+.filters input,
+.filters select {
+  padding: 9px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--paper);
+  color: var(--fg-strong);
+  font-size: 13px;
+  min-height: 38px;
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.filters input:hover,
+.filters select:hover { border-color: var(--cadet); }
+.filters input:focus,
+.filters select:focus {
+  outline: none;
+  border-color: var(--indigo);
+  background: #fff;
+  box-shadow: var(--focus-ring);
+}
+.filters input[type="search"] {
+  flex: 1 1 260px;
+  min-width: 200px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%235b6878' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><circle cx='11' cy='11' r='8'/><path d='m21 21-4.3-4.3'/></svg>");
+  background-repeat: no-repeat;
+  background-position: 12px center;
+  padding-left: 36px;
+}
+.filters select { min-width: 140px; cursor: pointer; }
+
+.filters .btn {
+  background: var(--indigo);
+  color: #fff;
+  border: 1px solid var(--indigo);
+  padding: 9px 16px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  min-height: 38px;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.filters .btn:hover { background: var(--indigo-deep); border-color: var(--indigo-deep); }
+.filters .btn.secondary {
+  background: #fff;
+  color: var(--fg-body);
+  border-color: var(--hairline);
+  font-weight: 500;
+}
+.filters .btn.secondary:hover {
+  background: var(--bg-panel);
+  border-color: var(--cadet);
+  color: var(--indigo);
+}
+
+.result-count {
+  font-size: 12px;
+  color: var(--fg-muted);
+  margin: 0 4px 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* =========================================================================
+   TABLE
+   ========================================================================= */
+.table-wrap {
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--hairline);
+  overflow: hidden;
+  box-shadow: var(--shadow-1);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+thead {
+  background: var(--bg-panel);
+  border-bottom: 1px solid var(--hairline);
+}
+th {
+  text-align: left;
+  padding: 13px 16px;
+  font-family: var(--font-sub);
+  font-weight: 600;
+  color: var(--fg-muted);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+th:hover { background: var(--timber-soft); color: var(--indigo); }
+th .sort-indicator {
+  color: var(--indigo);
+  margin-left: 6px;
+  font-size: 9px;
+}
+
+tbody tr {
+  border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+tbody tr:nth-child(4n+3) { background: var(--bg-row-alt); }
+tbody tr:hover { background: var(--bg-row-hover) !important; }
+tbody td {
+  padding: 14px 16px;
+  vertical-align: top;
+  color: var(--fg-body);
+}
+
+td.project-name {
+  font-weight: 600;
+  color: var(--fg-strong);
+  min-width: 200px;
+  font-size: 13.5px;
+  letter-spacing: -0.005em;
+}
+td.theme {
+  font-family: var(--font-sub);
+  color: var(--indigo);
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  white-space: nowrap;
+}
+td.success-metric,
+td.risk-flags {
+  color: var(--fg-body);
+  max-width: 260px;
+  line-height: 1.5;
+}
+
+/* =========================================================================
+   PILLS / CHIPS
+   ========================================================================= */
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px 3px 9px;
+  border-radius: var(--radius-pill);
+  font-size: 11px;
+  font-weight: 600;
+  white-space: nowrap;
+  letter-spacing: 0.01em;
+}
+.pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+  flex-shrink: 0;
+}
+.pill-Backlog    { background: var(--status-backlog-bg);    color: var(--status-backlog-fg); }
+.pill-Discovery  { background: var(--status-discovery-bg);  color: var(--status-discovery-fg); }
+.pill-InProgress { background: var(--status-progress-bg);   color: var(--status-progress-fg); }
+.pill-InReview   { background: var(--status-review-bg);     color: var(--status-review-fg); }
+.pill-Live       { background: var(--status-live-bg);       color: var(--status-live-fg); }
+.pill-OnHold     { background: var(--status-hold-bg);       color: var(--status-hold-fg); }
+.pill-Cancelled  { background: var(--status-cancelled-bg);  color: var(--status-cancelled-fg); }
+
+.chip {
+  display: inline-block;
+  background: var(--bg-panel);
+  color: var(--fg-body);
+  padding: 3px 9px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  font-size: 11px;
+  font-weight: 500;
+  margin: 2px 4px 2px 0;
+  white-space: nowrap;
+}
+.chip-danger {
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  border-color: transparent;
+  font-weight: 600;
+}
+.chip-warn {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  border-color: transparent;
+}
+
+/* =========================================================================
+   PROGRESS / SCORE
+   ========================================================================= */
+.progress {
+  width: 92px;
+  height: 6px;
+  background: var(--bg-panel);
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  border: 1px solid var(--hairline);
+}
+.progress-bar {
+  height: 100%;
+  background: linear-gradient(90deg, var(--indigo-soft) 0%, var(--indigo) 100%);
+  transition: width 0.4s var(--ease);
+  border-radius: var(--radius-pill);
+}
+.progress-text {
+  font-size: 11px;
+  color: var(--fg-muted);
+  margin-top: 5px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+.score-bar {
+  width: 64px;
+  height: 22px;
+  background: var(--bg-panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  position: relative;
+  overflow: hidden;
+}
+.score-fill {
+  height: 100%;
+  transition: width 0.4s var(--ease);
+}
+.score-fill.high { background: linear-gradient(90deg, #2f8f5f 0%, #1f6a47 100%); }
+.score-fill.med  { background: linear-gradient(90deg, #d2a04c 0%, #a87a26 100%); }
+.score-fill.low  { background: linear-gradient(90deg, var(--cadet) 0%, #7a8a96 100%); }
+.score-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: 0.01em;
+  font-variant-numeric: tabular-nums;
+  text-shadow: 0 1px 1px rgba(0,0,0,0.35);
+}
+
+/* =========================================================================
+   EXPANDABLE ROW
+   ========================================================================= */
+.expandable-row { display: none; background: var(--bg-panel); }
+.expandable-row.open { display: table-row; }
+.expandable-row > td {
+  padding: 24px 28px;
+  border-top: 1px solid var(--indigo);
+  box-shadow: inset 0 3px 0 0 var(--indigo);
+}
+.expandable-row .desc {
+  white-space: pre-wrap;
+  color: var(--fg-body);
+  margin-bottom: 20px;
+  line-height: 1.65;
+  font-size: 13.5px;
+  max-width: 880px;
+}
+.expandable-row .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 18px;
+  margin-bottom: 20px;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+.expandable-row .field-label {
+  font-family: var(--font-sub);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-muted);
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+.expandable-row .field-value {
+  color: var(--fg-strong);
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.expandable-row .row-actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+.expandable-row .row-actions button {
+  background: var(--indigo);
+  color: #fff;
+  border: 1px solid var(--indigo);
+  padding: 8px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.expandable-row .row-actions button:hover {
+  background: var(--indigo-deep);
+  border-color: var(--indigo-deep);
+}
+.expandable-row .row-actions button.secondary {
+  background: #fff;
+  color: var(--fg-body);
+  border-color: var(--hairline);
+  font-weight: 500;
+}
+.expandable-row .row-actions button.secondary:hover {
+  background: var(--bg-panel);
+  border-color: var(--cadet);
+  color: var(--indigo);
+}
+
+.expandable-row .audit {
+  margin-top: 16px;
+  padding: 14px 16px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+.expandable-row .audit h4 {
+  margin: 0 0 10px;
+  font-family: var(--font-sub);
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  letter-spacing: 0.12em;
+  font-weight: 600;
+}
+.expandable-row .audit .entry {
+  font-size: 12.5px;
+  color: var(--fg-body);
+  padding: 7px 0;
+  border-bottom: 1px solid var(--hairline);
+  line-height: 1.5;
+}
+.expandable-row .audit .entry:last-child { border-bottom: none; }
+.expandable-row .audit .entry strong { color: var(--fg-strong); font-weight: 600; }
+.expandable-row .audit .entry .when {
+  color: var(--fg-faint);
+  margin-left: 8px;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.signoffs {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+.signoffs::before {
+  content: "Sign-offs";
+  display: block;
+  font-family: var(--font-sub);
+  font-size: 10px;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  letter-spacing: 0.12em;
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+.signoffs .signoff {
+  display: inline-flex;
+  align-items: center;
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+  font-size: 11.5px;
+  font-weight: 600;
+  margin: 0 6px 4px 0;
+  line-height: 1.4;
+}
+
+/* =========================================================================
+   MODAL
+   ========================================================================= */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(13, 32, 56, 0.55);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  display: none;
+  align-items: flex-start;
+  justify-content: center;
+  z-index: 100;
+  padding: 60px 24px 24px;
+  overflow-y: auto;
+}
+.modal-backdrop.open {
+  display: flex;
+  animation: fadeIn var(--dur) var(--ease);
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.modal {
+  background: #fff;
+  border-radius: var(--radius-lg);
+  width: 100%;
+  max-width: 740px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 28px 32px 24px;
+  box-shadow: var(--shadow-3);
+  animation: slideIn 220ms var(--ease);
+  border: 1px solid var(--hairline);
+}
+.modal h2 {
+  margin: 0 0 6px;
+  color: var(--fg-strong);
+  font-size: 22px;
+  font-weight: 700;
+}
+.modal .modal-sub {
+  color: var(--fg-muted);
+  font-size: 13.5px;
+  margin: 0 0 24px;
+  line-height: 1.5;
+}
+.modal .form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px 20px;
+}
+.modal .form-grid .full { grid-column: 1 / -1; }
+.modal label {
+  display: block;
+  font-family: var(--font-sub);
+  font-size: 11px;
+  color: var(--fg-body);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-bottom: 5px;
+}
+.modal input,
+.modal select,
+.modal textarea {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  font-size: 13.5px;
+  background: var(--paper);
+  color: var(--fg-strong);
+  transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.modal input:hover,
+.modal select:hover,
+.modal textarea:hover { border-color: var(--cadet); }
+.modal input:focus,
+.modal select:focus,
+.modal textarea:focus {
+  outline: none;
+  border-color: var(--indigo);
+  background: #fff;
+  box-shadow: var(--focus-ring);
+}
+.modal textarea {
+  min-height: 84px;
+  resize: vertical;
+  line-height: 1.55;
+}
+.modal .modal-actions {
+  margin-top: 28px;
+  padding-top: 20px;
+  border-top: 1px solid var(--hairline);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+.modal .modal-actions button {
+  padding: 10px 20px;
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  font-size: 13.5px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.modal .btn-save {
+  background: var(--indigo);
+  color: #fff;
+  border-color: var(--indigo);
+}
+.modal .btn-save:hover { background: var(--indigo-deep); border-color: var(--indigo-deep); }
+.modal .btn-save:disabled { opacity: 0.55; cursor: not-allowed; }
+.modal .btn-cancel {
+  background: #fff;
+  color: var(--fg-body);
+  border-color: var(--hairline);
+}
+.modal .btn-cancel:hover { background: var(--bg-panel); border-color: var(--cadet); }
+.modal .btn-delete {
+  background: #fff;
+  color: var(--danger-fg);
+  border-color: var(--hairline);
+  margin-right: auto;
+}
+.modal .btn-delete:hover {
+  background: var(--danger-bg);
+  border-color: var(--danger-bg);
+}
+.modal .modal-err {
+  color: var(--danger-fg);
+  background: var(--danger-bg);
+  font-size: 13px;
+  margin-top: 16px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  font-weight: 500;
+}
+
+/* =========================================================================
+   MISC
+   ========================================================================= */
+footer {
+  text-align: center;
+  padding: 32px;
+  color: var(--fg-muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+footer::before {
+  content: "";
+  display: block;
+  width: 32px;
+  height: 2px;
+  background: var(--cadet);
+  margin: 0 auto 16px;
+  border-radius: 2px;
+}
+
+.viewer-banner {
+  background: var(--warn-bg);
+  color: var(--warn-fg);
+  padding: 10px 16px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  border-bottom: 1px solid rgba(122, 83, 16, 0.18);
+}
+
+@media (max-width: 720px) {
+  header { padding: 14px 18px; }
+  main { padding: 20px 16px 60px; }
+  header h1 { font-size: 16px; }
+  .kpi .num { font-size: 26px; }
+  th, tbody td { padding: 10px 12px; }
+}
+
+@media print {
+  body { background: #fff; }
+  header, .filters, .kpis, .modal-backdrop, footer, .viewer-banner { display: none; }
+  tbody tr { cursor: default; }
+  .expandable-row { display: table-row !important; }
+  .table-wrap { box-shadow: none; border: none; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- LOGIN SCREEN (shown when no session) -->
+<div id="login-screen" class="login-wrap" style="display:none">
+  <div class="login-card">
+    <div class="login-brand">
+      <div class="mark">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 11.5L12 4l9 7.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M5 10.5V20h14v-9.5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10 20v-5h4v5" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <span class="name">THM Media</span>
+    </div>
+
+    <h2>AI Projects Dashboard</h2>
+    <p class="login-sub">Sign in to view and manage the project registry.</p>
+
+    <div style="display: flex; gap: 4px; margin-bottom: 20px; background: var(--bg-panel); padding: 4px; border-radius: 8px; border: 1px solid var(--hairline);">
+      <button type="button" class="login-tab active" data-mode="password" style="flex:1; background:#fff; color:var(--indigo); border:none; padding:8px; border-radius:6px; font-weight:600; cursor:pointer; font-size: 13px; box-shadow: var(--shadow-1);">Password</button>
+      <button type="button" class="login-tab" data-mode="otp" style="flex:1; background:transparent; color:var(--fg-muted); border:none; padding:8px; border-radius:6px; font-weight:600; cursor:pointer; font-size: 13px;">Email code</button>
+    </div>
+
+    <!-- PASSWORD LOGIN (primary) -->
+    <form id="password-form">
+      <label for="pw-email">Email</label>
+      <input id="pw-email" type="email" required placeholder="you@thmmedia.com" autocomplete="email">
+      <label for="pw-password">Password</label>
+      <input id="pw-password" type="password" required autocomplete="current-password">
+      <button type="submit" id="pw-btn">Sign in</button>
+    </form>
+
+    <!-- OTP LOGIN (backup) -->
+    <form id="login-form" style="display:none">
+      <p style="font-size: 13px; color: var(--fg-muted); margin: 0 0 16px;">We'll email you a 6-digit code.</p>
+      <label for="email">Email</label>
+      <input id="email" type="email" required placeholder="you@thmmedia.com" autocomplete="email">
+      <button type="submit" id="login-btn">Send code</button>
+    </form>
+
+    <form id="verify-form" style="display:none; margin-top: 16px;">
+      <label for="otp">6-digit code from your email</label>
+      <input id="otp" inputmode="numeric" pattern="[0-9]*" maxlength="6" required placeholder="123456" autocomplete="one-time-code">
+      <button type="submit" id="verify-btn">Verify &amp; sign in</button>
+      <button type="button" id="resend-btn" style="margin-top:8px; background:#fff; color:var(--fg-body); border:1px solid var(--hairline);">Use a different email</button>
+    </form>
+
+    <div id="login-msg" class="login-msg" style="display:none"></div>
+  </div>
+</div>
+
+<!-- APP (shown when signed in) -->
+<div id="app" style="display:none">
+  <header>
+    <div class="brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <path d="M3 11.5L12 4l9 7.5" stroke="#223a5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M5 10.5V20h14v-9.5" stroke="#223a5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+          <path d="M10 20v-5h4v5" stroke="#223a5c" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <span class="eyebrow">THM Media</span>
+        <h1>AI Projects Dashboard</h1>
+        <div class="meta" id="header-meta">Loading…</div>
+      </div>
+    </div>
+    <div class="user-block">
+      <span class="who" id="user-name"></span>
+      <button class="btn-header btn-primary" id="new-project-btn" style="display:none">+ New Project</button>
+      <button class="btn-header" id="signout-btn">Sign out</button>
+    </div>
+  </header>
+
+  <div id="viewer-banner" class="viewer-banner" style="display:none">
+    You're signed in as a viewer. Read-only access — ask Masen or Angus to make changes.
+  </div>
+
+  <main>
+    <section class="kpis" id="kpis"></section>
+
+    <section class="filters">
+      <input type="search" id="search" placeholder="Search project, owner, metric, risk…">
+      <select id="theme-filter"><option value="">All Themes</option></select>
+      <select id="status-filter"><option value="">All Statuses</option></select>
+      <select id="owner-filter"><option value="">All Owners</option></select>
+      <select id="score-filter">
+        <option value="">All Scores</option>
+        <option value="high">High (13–15)</option>
+        <option value="med">Medium (9–12)</option>
+        <option value="low">Low (≤8)</option>
+      </select>
+      <button class="btn" id="export-csv">Export CSV</button>
+      <button class="btn secondary" id="reset-filters">Reset</button>
+    </section>
+
+    <div class="result-count" id="result-count"></div>
+
+    <section class="table-wrap">
+      <table id="projects-table">
+        <thead>
+          <tr>
+            <th data-sort="theme">Theme</th>
+            <th data-sort="project_name">Project</th>
+            <th data-sort="status">Status</th>
+            <th data-sort="owners">Owner</th>
+            <th data-sort="progress">Progress</th>
+            <th data-sort="target_date">Target</th>
+            <th data-sort="score">Score</th>
+            <th>Success Metric</th>
+            <th>Risk Flags</th>
+          </tr>
+        </thead>
+        <tbody id="projects-body"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <footer>
+    Source of truth: Supabase &middot; changes propagate live &middot; Click any row for details, history, and sign-off.
+  </footer>
+</div>
+
+<!-- PROJECT MODAL (new + edit) -->
+<div id="project-modal" class="modal-backdrop">
+  <div class="modal">
+    <h2 id="modal-title">Edit project</h2>
+    <p class="modal-sub" id="modal-sub">Changes save to Supabase and propagate to anyone with the dashboard open.</p>
+    <form id="project-form">
+      <div class="form-grid">
+        <div class="full">
+          <label for="f-project_name">Project name *</label>
+          <input id="f-project_name" required>
+        </div>
+        <div>
+          <label for="f-theme">Theme *</label>
+          <select id="f-theme" required>
+            <option value="Foundation">Foundation</option>
+            <option value="Sales — Rep Tools">Sales — Rep Tools</option>
+            <option value="Sales — Pipeline & Renewal">Sales — Pipeline &amp; Renewal</option>
+            <option value="Marketing">Marketing</option>
+            <option value="Lead Gen">Lead Gen</option>
+            <option value="Design & Layout">Design &amp; Layout</option>
+            <option value="Operations">Operations</option>
+            <option value="Finance">Finance</option>
+          </select>
+        </div>
+        <div>
+          <label for="f-status">Status *</label>
+          <select id="f-status" required>
+            <option>Backlog</option>
+            <option>Discovery</option>
+            <option>In Progress</option>
+            <option>In Review</option>
+            <option>Live</option>
+            <option>On Hold</option>
+            <option>Cancelled</option>
+          </select>
+        </div>
+        <div>
+          <label for="f-owners">Owners (comma-separated)</label>
+          <input id="f-owners" placeholder="Angus, Masen">
+        </div>
+        <div>
+          <label for="f-progress">Progress (0–100)</label>
+          <input id="f-progress" type="number" min="0" max="100" step="5">
+        </div>
+        <div>
+          <label for="f-target_date">Target date</label>
+          <input id="f-target_date" type="date">
+        </div>
+        <div>
+          <label for="f-impact">Impact (1–5)</label>
+          <input id="f-impact" type="number" min="1" max="5">
+        </div>
+        <div>
+          <label for="f-ease">Ease (1–5)</label>
+          <input id="f-ease" type="number" min="1" max="5">
+        </div>
+        <div>
+          <label for="f-strategic_fit">Strategic Fit (1–5)</label>
+          <input id="f-strategic_fit" type="number" min="1" max="5">
+        </div>
+        <div class="full">
+          <label for="f-description">Description</label>
+          <textarea id="f-description"></textarea>
+        </div>
+        <div class="full">
+          <label for="f-success_metric">Success metric</label>
+          <textarea id="f-success_metric" style="min-height: 60px"></textarea>
+        </div>
+        <div class="full">
+          <label for="f-risk_flags">Risk flags (comma-separated)</label>
+          <input id="f-risk_flags" placeholder="Human Review, Data Privacy">
+        </div>
+        <div class="full">
+          <label for="f-notes">Notes / open questions</label>
+          <textarea id="f-notes"></textarea>
+        </div>
+      </div>
+      <div id="modal-err" class="modal-err" style="display:none"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-delete" id="modal-delete" style="display:none">Delete</button>
+        <button type="button" class="btn-cancel" id="modal-cancel">Cancel</button>
+        <button type="submit" class="btn-save" id="modal-save">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- SIGN-OFF MODAL -->
+<div id="signoff-modal" class="modal-backdrop">
+  <div class="modal" style="max-width: 480px">
+    <h2>Sign off on this project</h2>
+    <p class="modal-sub">Records a sign-off event on this project. Anyone signed in can see who signed off and when.</p>
+    <form id="signoff-form">
+      <div class="form-grid">
+        <div>
+          <label for="s-role">Your role *</label>
+          <select id="s-role" required>
+            <option value="masen">Masen</option>
+            <option value="angus">Angus</option>
+            <option value="leadership">Leadership</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div>
+          <label for="s-type">Sign-off type *</label>
+          <select id="s-type" required>
+            <option value="project_ship">Project ship</option>
+            <option value="milestone">Milestone</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="s-notes">Notes (optional)</label>
+          <textarea id="s-notes" style="min-height: 60px"></textarea>
+        </div>
+      </div>
+      <div id="signoff-err" class="modal-err" style="display:none"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" id="signoff-cancel">Cancel</button>
+        <button type="submit" class="btn-save">Sign off</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+// ============================================================================
+// CONFIG
+// ============================================================================
+const SUPABASE_URL = 'https://wokpofioebqiqedgliux.supabase.co';
+const SUPABASE_KEY = 'sb_publishable_H9ANeb9duo0IONfcWsQloA_pH_eNUIV';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+const STATUSES = ['Backlog','Discovery','In Progress','In Review','Live','On Hold','Cancelled'];
+
+// ============================================================================
+// STATE
+// ============================================================================
+let session     = null;
+let profile     = null;     // { id, display_name, role }
+let projects    = [];       // all rows from ai_projects
+let signoffs    = [];       // all rows from ai_signoffs
+let audit       = {};       // project_id -> [audit rows]
+let editingId   = null;     // currently-edited project id, or null = new
+let signoffPid  = null;     // project being signed off
+
+let filterState = {
+  search: '', theme: '', status: '', owner: '', score: '',
+  sortBy: 'score', sortDir: 'desc',
+};
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+function escapeHTML(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function pillClass(status) { return 'pill pill-' + (status || '').replace(/\s/g,''); }
+function scoreClass(score) { return score >= 13 ? 'high' : score >= 9 ? 'med' : 'low'; }
+function isAdmin() { return profile && profile.role === 'admin'; }
+function formatDate(s) {
+  if (!s) return '';
+  const d = new Date(s + (s.length === 10 ? 'T12:00:00' : ''));
+  return isNaN(d) ? s : d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function formatWhen(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+}
+function renderRiskFlags(arr) {
+  if (!arr || !arr.length) return '';
+  return arr.map(flag => {
+    const cls = flag === 'High Blast Radius' ? 'chip chip-danger'
+              : (flag === 'Strategic Alignment' || flag === 'External Data Dependency') ? 'chip chip-warn'
+              : 'chip';
+    return `<span class="${cls}">${escapeHTML(flag)}</span>`;
+  }).join('');
+}
+function parseCSV(s) {
+  return (s || '').split(',').map(x => x.trim()).filter(Boolean);
+}
+
+// ============================================================================
+// AUTH
+// ============================================================================
+async function init() {
+  const { data } = await sb.auth.getSession();
+  session = data.session;
+  if (!session) {
+    document.getElementById('login-screen').style.display = 'flex';
+    return;
+  }
+  await loadProfile();
+  await mountApp();
+}
+
+async function loadProfile() {
+  const { data, error } = await sb.from('profiles').select('*').eq('id', session.user.id).single();
+  if (error || !data) {
+    profile = { id: session.user.id, display_name: session.user.email, role: 'viewer' };
+  } else {
+    profile = data;
+  }
+}
+
+let pendingEmail = null;
+
+function showMsg(kind, text) {
+  const msg = document.getElementById('login-msg');
+  msg.className = 'login-msg ' + kind;
+  msg.textContent = text;
+  msg.style.display = 'block';
+}
+
+// Tab switching
+document.querySelectorAll('.login-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    document.querySelectorAll('.login-tab').forEach(t => {
+      t.classList.remove('active');
+      t.style.background = 'transparent';
+      t.style.color = 'var(--fg-muted)';
+      t.style.boxShadow = 'none';
+    });
+    tab.classList.add('active');
+    tab.style.background = '#fff';
+    tab.style.color = 'var(--indigo)';
+    tab.style.boxShadow = 'var(--shadow-1)';
+    const mode = tab.dataset.mode;
+    document.getElementById('password-form').style.display = mode === 'password' ? 'block' : 'none';
+    document.getElementById('login-form').style.display    = mode === 'otp'      ? 'block' : 'none';
+    document.getElementById('verify-form').style.display   = 'none';
+    document.getElementById('login-msg').style.display     = 'none';
+  });
+});
+
+// PASSWORD LOGIN
+document.getElementById('password-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = document.getElementById('pw-email').value.trim();
+  const password = document.getElementById('pw-password').value;
+  const btn = document.getElementById('pw-btn');
+  btn.disabled = true;
+  document.getElementById('login-msg').style.display = 'none';
+  const { error, data } = await sb.auth.signInWithPassword({ email, password });
+  btn.disabled = false;
+  if (error) {
+    showMsg('err', error.message);
+    return;
+  }
+  session = data.session;
+  document.getElementById('login-screen').style.display = 'none';
+  await loadProfile();
+  await mountApp();
+});
+
+document.getElementById('login-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = document.getElementById('email').value.trim();
+  const btn = document.getElementById('login-btn');
+  btn.disabled = true;
+  document.getElementById('login-msg').style.display = 'none';
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  btn.disabled = false;
+  if (error) {
+    showMsg('err', error.message);
+    return;
+  }
+  pendingEmail = email;
+  document.getElementById('login-form').style.display = 'none';
+  document.getElementById('verify-form').style.display = 'block';
+  showMsg('ok', `Code sent to ${email}. Check your inbox.`);
+});
+
+document.getElementById('verify-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const token = document.getElementById('otp').value.trim();
+  const btn = document.getElementById('verify-btn');
+  btn.disabled = true;
+  const { error, data } = await sb.auth.verifyOtp({ email: pendingEmail, token, type: 'email' });
+  btn.disabled = false;
+  if (error) {
+    showMsg('err', error.message);
+    return;
+  }
+  session = data.session;
+  document.getElementById('login-screen').style.display = 'none';
+  await loadProfile();
+  await mountApp();
+});
+
+document.getElementById('resend-btn').addEventListener('click', () => {
+  pendingEmail = null;
+  document.getElementById('login-form').style.display = 'block';
+  document.getElementById('verify-form').style.display = 'none';
+  document.getElementById('login-msg').style.display = 'none';
+});
+
+document.getElementById('signout-btn').addEventListener('click', async () => {
+  await sb.auth.signOut();
+  location.reload();
+});
+
+// Note: we deliberately don't trigger reload from onAuthStateChange — the
+// password / OTP forms call mountApp() directly after sign-in, and the magic
+// link redirect path is handled by init() reading the URL hash via getSession().
+
+// ============================================================================
+// DATA LOADING
+// ============================================================================
+async function mountApp() {
+  document.getElementById('app').style.display = 'block';
+  document.getElementById('user-name').textContent = `${profile.display_name} (${profile.role})`;
+  if (isAdmin()) {
+    document.getElementById('new-project-btn').style.display = 'inline-block';
+  } else {
+    document.getElementById('viewer-banner').style.display = 'block';
+  }
+  await Promise.all([fetchProjects(), fetchSignoffs()]);
+  populateFilters();
+  attachEvents();
+  render();
+  subscribeRealtime();
+}
+
+async function fetchProjects() {
+  const { data, error } = await sb.from('ai_projects').select('*').order('score', { ascending: false });
+  if (error) { console.error(error); return; }
+  projects = data;
+}
+
+async function fetchSignoffs() {
+  const { data, error } = await sb.from('ai_signoffs').select('*').order('signed_at', { ascending: false });
+  if (error) { console.error(error); return; }
+  signoffs = data;
+}
+
+async function fetchAudit(projectId) {
+  if (audit[projectId]) return audit[projectId];
+  const { data, error } = await sb.from('ai_project_audit')
+    .select('*').eq('project_id', projectId)
+    .order('changed_at', { ascending: false }).limit(25);
+  if (error) { console.error(error); return []; }
+  audit[projectId] = data;
+  return data;
+}
+
+// ============================================================================
+// REALTIME
+// ============================================================================
+function subscribeRealtime() {
+  sb.channel('ai_projects_changes')
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_projects' }, payload => {
+      if (payload.eventType === 'INSERT') projects.push(payload.new);
+      else if (payload.eventType === 'UPDATE') {
+        const i = projects.findIndex(p => p.id === payload.new.id);
+        if (i >= 0) projects[i] = payload.new;
+        delete audit[payload.new.id];   // invalidate audit cache for this project
+      }
+      else if (payload.eventType === 'DELETE') {
+        projects = projects.filter(p => p.id !== payload.old.id);
+      }
+      render();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_signoffs' }, async () => {
+      await fetchSignoffs();
+      render();
+    })
+    .subscribe();
+}
+
+// ============================================================================
+// RENDER
+// ============================================================================
+function filterProjects() {
+  return projects.filter(p => {
+    if (filterState.theme  && p.theme !== filterState.theme)  return false;
+    if (filterState.status && p.status !== filterState.status) return false;
+    if (filterState.owner  && !(p.owners || []).includes(filterState.owner)) return false;
+    if (filterState.score === 'high' && p.score < 13) return false;
+    if (filterState.score === 'med'  && (p.score < 9 || p.score > 12)) return false;
+    if (filterState.score === 'low'  && p.score > 8) return false;
+    if (filterState.search) {
+      const q = filterState.search.toLowerCase();
+      const hay = [
+        p.project_name, p.theme, (p.owners||[]).join(' '),
+        p.description, p.success_metric, (p.risk_flags||[]).join(' '), p.notes
+      ].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  }).sort((a, b) => {
+    const dir = filterState.sortDir === 'desc' ? -1 : 1;
+    let av = a[filterState.sortBy], bv = b[filterState.sortBy];
+    if (Array.isArray(av)) av = av.join(',');
+    if (Array.isArray(bv)) bv = bv.join(',');
+    av = av ?? ''; bv = bv ?? '';
+    if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+}
+
+function renderKPIs() {
+  const counts = {
+    'Total':            projects.length,
+    'Live':             projects.filter(p => p.status === 'Live').length,
+    'In Progress':      projects.filter(p => p.status === 'In Progress').length,
+    'Discovery':        projects.filter(p => p.status === 'Discovery').length,
+    'Backlog':          projects.filter(p => p.status === 'Backlog').length,
+    'High Priority (13+)': projects.filter(p => p.score >= 13).length,
+  };
+  const kpis = document.getElementById('kpis');
+  kpis.innerHTML = Object.entries(counts).map(([label, n]) => {
+    const status = (label === 'Total' || label === 'High Priority (13+)') ? '' : label;
+    const isHi = label === 'High Priority (13+)';
+    const active = (status && status === filterState.status) || (isHi && filterState.score === 'high') ? 'active' : '';
+    return `<div class="kpi ${active}" data-status="${status}" data-special="${isHi ? 'high' : ''}"><span class="num">${n}</span><span class="label">${label}</span></div>`;
+  }).join('');
+  kpis.querySelectorAll('.kpi').forEach(el => {
+    el.addEventListener('click', () => {
+      const status = el.dataset.status;
+      const special = el.dataset.special;
+      if (special === 'high') {
+        filterState.score = filterState.score === 'high' ? '' : 'high';
+        filterState.status = '';
+      } else if (status) {
+        filterState.status = filterState.status === status ? '' : status;
+        filterState.score = '';
+      } else {
+        filterState.status = ''; filterState.score = '';
+      }
+      document.getElementById('score-filter').value = filterState.score;
+      document.getElementById('status-filter').value = filterState.status;
+      render();
+    });
+  });
+  document.getElementById('header-meta').textContent =
+    `${projects.length} projects · ${counts['High Priority (13+)']} high-priority · realtime`;
+}
+
+function signoffsFor(pid) {
+  return signoffs.filter(s => s.project_id === pid);
+}
+
+function renderTable() {
+  const tbody = document.getElementById('projects-body');
+  const filtered = filterProjects();
+  document.getElementById('result-count').textContent = `${filtered.length} of ${projects.length} projects`;
+
+  tbody.innerHTML = filtered.map(p => {
+    const sc = scoreClass(p.score);
+    const target = p.target_date ? formatDate(p.target_date) : '<span style="color:var(--fg-faint)">—</span>';
+    const ownerTxt = (p.owners && p.owners.length) ? p.owners.join(' + ') : '<span style="color:var(--fg-faint)">unassigned</span>';
+    const pct = Math.round((p.progress || 0) * 100);
+    const sm = p.success_metric ? escapeHTML(p.success_metric) : '<span style="color:var(--fg-faint)">—</span>';
+    const sos = signoffsFor(p.id);
+    const sosBlock = sos.length
+      ? `<div class="signoffs">${sos.map(s => `<span class="signoff">✓ ${escapeHTML(s.signed_by_name)} (${s.role}) · ${formatWhen(s.signed_at)}</span>`).join('')}</div>`
+      : '';
+    return `
+      <tr data-id="${p.id}" class="main-row">
+        <td class="theme">${escapeHTML(p.theme)}</td>
+        <td class="project-name">${escapeHTML(p.project_name)}</td>
+        <td><span class="${pillClass(p.status)}">${escapeHTML(p.status)}</span></td>
+        <td>${ownerTxt}</td>
+        <td>
+          <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
+          <div class="progress-text">${pct}%</div>
+        </td>
+        <td>${target}</td>
+        <td><div class="score-bar"><div class="score-fill ${sc}" style="width:${(p.score/15)*100}%"></div><span class="score-text">${p.score}/15</span></div></td>
+        <td class="success-metric">${sm}</td>
+        <td class="risk-flags">${renderRiskFlags(p.risk_flags)}</td>
+      </tr>
+      <tr class="expandable-row" data-for="${p.id}">
+        <td colspan="9">
+          <div class="desc">${escapeHTML(p.description || '—')}</div>
+          <div class="grid">
+            <div><div class="field-label">Impact</div><div class="field-value">${p.impact ?? '—'}/5</div></div>
+            <div><div class="field-label">Ease</div><div class="field-value">${p.ease ?? '—'}/5</div></div>
+            <div><div class="field-label">Strategic Fit</div><div class="field-value">${p.strategic_fit ?? '—'}/5</div></div>
+            <div><div class="field-label">Total Score</div><div class="field-value">${p.score}/15</div></div>
+            <div><div class="field-label">Success Metric</div><div class="field-value">${escapeHTML(p.success_metric || '—')}</div></div>
+            <div><div class="field-label">Risk Flags</div><div class="field-value">${renderRiskFlags(p.risk_flags) || '—'}</div></div>
+            <div><div class="field-label">Notes / Open Questions</div><div class="field-value">${escapeHTML(p.notes || '—')}</div></div>
+            <div><div class="field-label">Updated</div><div class="field-value">${formatWhen(p.updated_at)}</div></div>
+          </div>
+          ${sosBlock}
+          ${isAdmin() ? `
+            <div class="row-actions">
+              <button data-action="edit"    data-id="${p.id}">Edit</button>
+              <button data-action="signoff" data-id="${p.id}" class="secondary">Sign off</button>
+              <button data-action="history" data-id="${p.id}" class="secondary">View history</button>
+            </div>` : `
+            <div class="row-actions">
+              <button data-action="history" data-id="${p.id}" class="secondary">View history</button>
+            </div>`}
+          <div class="audit" data-audit-for="${p.id}" style="display:none">
+            <h4>Recent changes</h4>
+            <div class="entries">Loading…</div>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  tbody.querySelectorAll('.main-row').forEach(row => {
+    row.addEventListener('click', e => {
+      if (e.target.closest('button')) return;
+      const id = row.dataset.id;
+      const ex = tbody.querySelector(`.expandable-row[data-for="${id}"]`);
+      if (ex) ex.classList.toggle('open');
+    });
+  });
+
+  tbody.querySelectorAll('button[data-action]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      const id = btn.dataset.id;
+      const action = btn.dataset.action;
+      if (action === 'edit')    openProjectModal(id);
+      if (action === 'signoff') openSignoffModal(id);
+      if (action === 'history') toggleHistory(id);
+    });
+  });
+}
+
+async function toggleHistory(pid) {
+  const box = document.querySelector(`[data-audit-for="${pid}"]`);
+  if (!box) return;
+  if (box.style.display === 'none') {
+    box.style.display = 'block';
+    const entries = box.querySelector('.entries');
+    entries.textContent = 'Loading…';
+    const rows = await fetchAudit(pid);
+    if (!rows.length) {
+      entries.innerHTML = '<div class="entry" style="color:var(--fg-faint)">No changes recorded yet.</div>';
+    } else {
+      entries.innerHTML = rows.map(r => `
+        <div class="entry">
+          <strong>${escapeHTML(r.changed_by_name || 'unknown')}</strong>
+          changed <strong>${escapeHTML(r.field_name)}</strong>:
+          ${escapeHTML(r.old_value ?? '—')} → ${escapeHTML(r.new_value ?? '—')}
+          <span class="when">${formatWhen(r.changed_at)}</span>
+        </div>`).join('');
+    }
+  } else {
+    box.style.display = 'none';
+  }
+}
+
+function render() { renderKPIs(); renderTable(); }
+
+// ============================================================================
+// FILTERS
+// ============================================================================
+function populateFilters() {
+  const themes = [...new Set(projects.map(p => p.theme).filter(Boolean))].sort();
+  const owners = [...new Set(projects.flatMap(p => p.owners || []).filter(Boolean))].sort();
+  const themeSel = document.getElementById('theme-filter');
+  const ownerSel = document.getElementById('owner-filter');
+  const statusSel = document.getElementById('status-filter');
+  themes.forEach(t => themeSel.innerHTML += `<option value="${escapeHTML(t)}">${escapeHTML(t)}</option>`);
+  owners.forEach(o => ownerSel.innerHTML += `<option value="${escapeHTML(o)}">${escapeHTML(o)}</option>`);
+  STATUSES.forEach(s => statusSel.innerHTML += `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`);
+}
+
+function attachEvents() {
+  document.getElementById('search').addEventListener('input', e => { filterState.search = e.target.value; render(); });
+  document.getElementById('theme-filter').addEventListener('change', e => { filterState.theme = e.target.value; render(); });
+  document.getElementById('status-filter').addEventListener('change', e => { filterState.status = e.target.value; render(); });
+  document.getElementById('owner-filter').addEventListener('change', e => { filterState.owner = e.target.value; render(); });
+  document.getElementById('score-filter').addEventListener('change', e => { filterState.score = e.target.value; render(); });
+  document.getElementById('reset-filters').addEventListener('click', () => {
+    filterState = { search: '', theme: '', status: '', owner: '', score: '', sortBy: 'score', sortDir: 'desc' };
+    document.getElementById('search').value = '';
+    ['theme','status','owner','score'].forEach(k => document.getElementById(k + '-filter').value = '');
+    render();
+  });
+  document.getElementById('export-csv').addEventListener('click', exportCSV);
+  document.getElementById('new-project-btn').addEventListener('click', () => openProjectModal(null));
+  document.querySelectorAll('th[data-sort]').forEach(th => {
+    th.addEventListener('click', () => {
+      const key = th.dataset.sort;
+      if (filterState.sortBy === key) filterState.sortDir = filterState.sortDir === 'asc' ? 'desc' : 'asc';
+      else { filterState.sortBy = key; filterState.sortDir = ['progress','score'].includes(key) ? 'desc' : 'asc'; }
+      document.querySelectorAll('th[data-sort]').forEach(t => t.innerHTML = t.textContent.replace(/[▲▼]/g,'').trim());
+      th.innerHTML += ` <span class="sort-indicator">${filterState.sortDir === 'desc' ? '▼' : '▲'}</span>`;
+      renderTable();
+    });
+  });
+  document.getElementById('modal-cancel').addEventListener('click', closeProjectModal);
+  document.getElementById('modal-delete').addEventListener('click', deleteProject);
+  document.getElementById('project-form').addEventListener('submit', saveProject);
+  document.getElementById('signoff-cancel').addEventListener('click', closeSignoffModal);
+  document.getElementById('signoff-form').addEventListener('submit', saveSignoff);
+}
+
+// ============================================================================
+// PROJECT MODAL — new + edit
+// ============================================================================
+function openProjectModal(id) {
+  if (!isAdmin()) return;
+  editingId = id;
+  const p = id ? projects.find(x => x.id === id) : null;
+  document.getElementById('modal-title').textContent = id ? 'Edit project' : 'New project';
+  document.getElementById('modal-sub').textContent = id
+    ? 'Changes save to Supabase and propagate live to anyone viewing.'
+    : 'Adds a row to the registry. Visible immediately to everyone.';
+  document.getElementById('modal-delete').style.display = id ? 'inline-block' : 'none';
+
+  // Set field values
+  const fld = (name, val) => document.getElementById('f-' + name).value = (val ?? '');
+  fld('project_name',  p?.project_name);
+  fld('theme',         p?.theme || 'Foundation');
+  fld('status',        p?.status || 'Backlog');
+  fld('owners',        (p?.owners || []).join(', '));
+  fld('progress',      p ? Math.round((p.progress || 0) * 100) : '');
+  fld('target_date',   p?.target_date || '');
+  fld('impact',        p?.impact ?? '');
+  fld('ease',          p?.ease ?? '');
+  fld('strategic_fit', p?.strategic_fit ?? '');
+  fld('description',   p?.description);
+  fld('success_metric',p?.success_metric);
+  fld('risk_flags',    (p?.risk_flags || []).join(', '));
+  fld('notes',         p?.notes);
+  document.getElementById('modal-err').style.display = 'none';
+  document.getElementById('project-modal').classList.add('open');
+}
+
+function closeProjectModal() {
+  document.getElementById('project-modal').classList.remove('open');
+  editingId = null;
+}
+
+async function saveProject(e) {
+  e.preventDefault();
+  const get = id => document.getElementById('f-' + id).value.trim();
+  const num = v => v === '' ? null : Number(v);
+
+  const payload = {
+    project_name:   get('project_name'),
+    theme:          get('theme'),
+    status:         get('status'),
+    owners:         parseCSV(get('owners')),
+    progress:       get('progress') === '' ? 0 : Math.max(0, Math.min(1, Number(get('progress')) / 100)),
+    target_date:    get('target_date') || null,
+    impact:         num(get('impact')),
+    ease:           num(get('ease')),
+    strategic_fit:  num(get('strategic_fit')),
+    description:    get('description') || null,
+    success_metric: get('success_metric') || null,
+    risk_flags:     parseCSV(get('risk_flags')),
+    notes:          get('notes') || null,
+  };
+
+  const btn = document.getElementById('modal-save');
+  const err = document.getElementById('modal-err');
+  btn.disabled = true;
+  err.style.display = 'none';
+
+  let res;
+  if (editingId) {
+    res = await sb.from('ai_projects').update(payload).eq('id', editingId);
+  } else {
+    res = await sb.from('ai_projects').insert(payload);
+  }
+
+  btn.disabled = false;
+  if (res.error) {
+    err.textContent = res.error.message;
+    err.style.display = 'block';
+    return;
+  }
+  closeProjectModal();
+}
+
+async function deleteProject() {
+  if (!editingId) return;
+  if (!confirm('Delete this project? This cannot be undone.')) return;
+  const { error } = await sb.from('ai_projects').delete().eq('id', editingId);
+  if (error) {
+    const err = document.getElementById('modal-err');
+    err.textContent = error.message;
+    err.style.display = 'block';
+    return;
+  }
+  closeProjectModal();
+}
+
+// ============================================================================
+// SIGN-OFF MODAL
+// ============================================================================
+function openSignoffModal(pid) {
+  if (!isAdmin()) return;
+  signoffPid = pid;
+  document.getElementById('s-role').value = profile.display_name.toLowerCase() === 'masen' ? 'masen'
+                                          : profile.display_name.toLowerCase() === 'angus' ? 'angus'
+                                          : 'other';
+  document.getElementById('s-type').value = 'project_ship';
+  document.getElementById('s-notes').value = '';
+  document.getElementById('signoff-err').style.display = 'none';
+  document.getElementById('signoff-modal').classList.add('open');
+}
+
+function closeSignoffModal() {
+  document.getElementById('signoff-modal').classList.remove('open');
+  signoffPid = null;
+}
+
+async function saveSignoff(e) {
+  e.preventDefault();
+  const payload = {
+    signoff_type:   document.getElementById('s-type').value,
+    project_id:     signoffPid,
+    role:           document.getElementById('s-role').value,
+    signed_by:      profile.id,
+    signed_by_name: profile.display_name,
+    notes:          document.getElementById('s-notes').value.trim() || null,
+  };
+  const { error } = await sb.from('ai_signoffs').insert(payload);
+  if (error) {
+    const err = document.getElementById('signoff-err');
+    err.textContent = error.message;
+    err.style.display = 'block';
+    return;
+  }
+  closeSignoffModal();
+}
+
+// ============================================================================
+// EXPORT
+// ============================================================================
+function exportCSV() {
+  const rows = filterProjects();
+  const headers = ['ID','Theme','Project','Status','Owners','Progress %','Target','Impact','Ease','StratFit','Score','Success Metric','Risk Flags','Description','Notes'];
+  const lines = [headers.join(',')];
+  rows.forEach(p => {
+    const row = [
+      p.project_number, p.theme, p.project_name, p.status,
+      (p.owners || []).join(' + '),
+      Math.round((p.progress || 0) * 100),
+      p.target_date || '',
+      p.impact ?? '', p.ease ?? '', p.strategic_fit ?? '', p.score,
+      p.success_metric ?? '', (p.risk_flags || []).join(' · '),
+      p.description ?? '', p.notes ?? '',
+    ];
+    lines.push(row.map(v => '"' + String(v ?? '').replace(/"/g,'""') + '"').join(','));
+  });
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'thm-ai-projects-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ============================================================================
+// GO
+// ============================================================================
+init();
+</script>
+
+</body>
+</html>
