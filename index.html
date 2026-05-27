@@ -947,6 +947,86 @@ footer::before {
   border-bottom: 1px solid rgba(122, 83, 16, 0.18);
 }
 
+/* =========================================================================
+   KPI STATUS TINTS
+   ========================================================================= */
+.kpi[data-status="Live"]            { background: var(--status-live-bg);     border-color: color-mix(in srgb, var(--status-live-fg) 25%, transparent); }
+.kpi[data-status="Live"]::before    { opacity: 1; background: var(--status-live-fg); }
+.kpi[data-status="Live"] .num       { color: var(--status-live-fg); }
+
+.kpi[data-status="In Progress"]         { background: var(--status-progress-bg); border-color: color-mix(in srgb, var(--status-progress-fg) 25%, transparent); }
+.kpi[data-status="In Progress"]::before { opacity: 1; background: var(--status-progress-fg); }
+.kpi[data-status="In Progress"] .num    { color: var(--status-progress-fg); }
+
+.kpi[data-status="Discovery"]         { background: var(--status-discovery-bg); border-color: color-mix(in srgb, var(--status-discovery-fg) 25%, transparent); }
+.kpi[data-status="Discovery"]::before { opacity: 1; background: var(--status-discovery-fg); }
+.kpi[data-status="Discovery"] .num    { color: var(--status-discovery-fg); }
+
+.kpi[data-status="Backlog"]         { background: var(--status-backlog-bg); border-color: color-mix(in srgb, var(--status-backlog-fg) 25%, transparent); }
+.kpi[data-status="Backlog"]::before { opacity: 1; background: var(--status-backlog-fg); }
+.kpi[data-status="Backlog"] .num    { color: var(--status-backlog-fg); }
+
+.kpi[data-special="score-hi"]         { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn-fg) 25%, transparent); }
+.kpi[data-special="score-hi"]::before { opacity: 1; background: var(--warn-fg); }
+.kpi[data-special="score-hi"] .num    { color: var(--warn-fg); }
+
+/* Total KPI keeps the existing indigo treatment via the default styles. */
+
+/* =========================================================================
+   PRIORITY PILLS
+   ========================================================================= */
+.pill-priority-High   { background: var(--danger-bg); color: var(--danger-fg); }
+.pill-priority-Medium { background: var(--warn-bg);   color: var(--warn-fg); }
+.pill-priority-Low    { background: var(--bg-panel);  color: var(--fg-muted); border: 1px solid var(--hairline); }
+
+/* =========================================================================
+   DELIVERABLE LINK (in expandable row)
+   ========================================================================= */
+.deliverable-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--ok-bg);
+  color: var(--ok-fg);
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: none;
+  border: 1px solid color-mix(in srgb, var(--ok-fg) 22%, transparent);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  margin-bottom: 18px;
+}
+.deliverable-link:hover {
+  background: color-mix(in srgb, var(--ok-bg) 65%, var(--ok-fg) 18%);
+  border-color: var(--ok-fg);
+}
+.deliverable-link::before { content: "↗"; font-weight: 700; font-size: 14px; }
+
+/* =========================================================================
+   NOTES BLOCK (full-width, readable) in expandable row
+   ========================================================================= */
+.expandable-row .notes-block {
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-left: 3px solid var(--indigo);
+  border-radius: var(--radius-md);
+  padding: 16px 22px;
+  margin-top: 18px;
+  margin-bottom: 4px;
+}
+.expandable-row .notes-block .field-label {
+  margin-bottom: 10px;
+}
+.expandable-row .notes-block .notes-body {
+  color: var(--fg-strong);
+  font-size: 14px;
+  line-height: 1.7;
+  white-space: pre-wrap;
+  max-width: 880px;
+  font-weight: 400;
+}
+
 @media (max-width: 720px) {
   header { padding: 14px 18px; }
   main { padding: 20px 16px 60px; }
@@ -1053,6 +1133,12 @@ footer::before {
       <select id="theme-filter"><option value="">All Themes</option></select>
       <select id="status-filter"><option value="">All Statuses</option></select>
       <select id="owner-filter"><option value="">All Owners</option></select>
+      <select id="priority-filter">
+        <option value="">All Priorities</option>
+        <option value="High">High</option>
+        <option value="Medium">Medium</option>
+        <option value="Low">Low</option>
+      </select>
       <select id="score-filter">
         <option value="">All Scores</option>
         <option value="high">High (13–15)</option>
@@ -1075,6 +1161,7 @@ footer::before {
             <th data-sort="owners">Owner</th>
             <th data-sort="progress">Progress</th>
             <th data-sort="target_date">Target</th>
+            <th data-sort="priority">Priority</th>
             <th data-sort="score">Score</th>
             <th>Success Metric</th>
             <th>Risk Flags</th>
@@ -1149,6 +1236,19 @@ footer::before {
         <div>
           <label for="f-strategic_fit">Strategic Fit (1–5)</label>
           <input id="f-strategic_fit" type="number" min="1" max="5">
+        </div>
+        <div>
+          <label for="f-priority">Priority</label>
+          <select id="f-priority">
+            <option value="">— Not set —</option>
+            <option value="High">High</option>
+            <option value="Medium">Medium</option>
+            <option value="Low">Low</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="f-deliverable_url">Deliverable URL <span style="color:var(--fg-faint); font-weight:500; text-transform:none; letter-spacing:0; font-family:var(--font-body)">(link to the live/finished project)</span></label>
+          <input id="f-deliverable_url" type="url" placeholder="https://...">
         </div>
         <div class="full">
           <label for="f-description">Description</label>
@@ -1236,7 +1336,7 @@ let editingId   = null;     // currently-edited project id, or null = new
 let signoffPid  = null;     // project being signed off
 
 let filterState = {
-  search: '', theme: '', status: '', owner: '', score: '',
+  search: '', theme: '', status: '', owner: '', priority: '', score: '',
   sortBy: 'score', sortDir: 'desc',
 };
 
@@ -1465,9 +1565,10 @@ function subscribeRealtime() {
 // ============================================================================
 function filterProjects() {
   return projects.filter(p => {
-    if (filterState.theme  && p.theme !== filterState.theme)  return false;
-    if (filterState.status && p.status !== filterState.status) return false;
-    if (filterState.owner  && !(p.owners || []).includes(filterState.owner)) return false;
+    if (filterState.theme    && p.theme !== filterState.theme)   return false;
+    if (filterState.status   && p.status !== filterState.status) return false;
+    if (filterState.owner    && !(p.owners || []).includes(filterState.owner)) return false;
+    if (filterState.priority && p.priority !== filterState.priority) return false;
     if (filterState.score === 'high' && p.score < 13) return false;
     if (filterState.score === 'med'  && (p.score < 9 || p.score > 12)) return false;
     if (filterState.score === 'low'  && p.score > 8) return false;
@@ -1475,13 +1576,17 @@ function filterProjects() {
       const q = filterState.search.toLowerCase();
       const hay = [
         p.project_name, p.theme, (p.owners||[]).join(' '),
-        p.description, p.success_metric, (p.risk_flags||[]).join(' '), p.notes
+        p.priority, p.description, p.success_metric, (p.risk_flags||[]).join(' '), p.notes
       ].join(' ').toLowerCase();
       if (!hay.includes(q)) return false;
     }
     return true;
   }).sort((a, b) => {
     const dir = filterState.sortDir === 'desc' ? -1 : 1;
+    if (filterState.sortBy === 'priority') {
+      const rank = { 'High': 3, 'Medium': 2, 'Low': 1 };
+      return ((rank[a.priority] || 0) - (rank[b.priority] || 0)) * dir;
+    }
     let av = a[filterState.sortBy], bv = b[filterState.sortBy];
     if (Array.isArray(av)) av = av.join(',');
     if (Array.isArray(bv)) bv = bv.join(',');
@@ -1493,25 +1598,26 @@ function filterProjects() {
 
 function renderKPIs() {
   const counts = {
-    'Total':            projects.length,
-    'Live':             projects.filter(p => p.status === 'Live').length,
-    'In Progress':      projects.filter(p => p.status === 'In Progress').length,
-    'Discovery':        projects.filter(p => p.status === 'Discovery').length,
-    'Backlog':          projects.filter(p => p.status === 'Backlog').length,
-    'High Priority (13+)': projects.filter(p => p.score >= 13).length,
+    'Total':           projects.length,
+    'Live':            projects.filter(p => p.status === 'Live').length,
+    'In Progress':     projects.filter(p => p.status === 'In Progress').length,
+    'Discovery':       projects.filter(p => p.status === 'Discovery').length,
+    'Backlog':         projects.filter(p => p.status === 'Backlog').length,
+    'High Score (13+)':projects.filter(p => p.score >= 13).length,
   };
   const kpis = document.getElementById('kpis');
   kpis.innerHTML = Object.entries(counts).map(([label, n]) => {
-    const status = (label === 'Total' || label === 'High Priority (13+)') ? '' : label;
-    const isHi = label === 'High Priority (13+)';
+    const isHi   = label === 'High Score (13+)';
+    const status = (label === 'Total' || isHi) ? '' : label;
+    const special = isHi ? 'score-hi' : '';
     const active = (status && status === filterState.status) || (isHi && filterState.score === 'high') ? 'active' : '';
-    return `<div class="kpi ${active}" data-status="${status}" data-special="${isHi ? 'high' : ''}"><span class="num">${n}</span><span class="label">${label}</span></div>`;
+    return `<div class="kpi ${active}" data-status="${status}" data-special="${special}"><span class="num">${n}</span><span class="label">${label}</span></div>`;
   }).join('');
   kpis.querySelectorAll('.kpi').forEach(el => {
     el.addEventListener('click', () => {
       const status = el.dataset.status;
       const special = el.dataset.special;
-      if (special === 'high') {
+      if (special === 'score-hi') {
         filterState.score = filterState.score === 'high' ? '' : 'high';
         filterState.status = '';
       } else if (status) {
@@ -1526,7 +1632,7 @@ function renderKPIs() {
     });
   });
   document.getElementById('header-meta').textContent =
-    `${projects.length} projects · ${counts['High Priority (13+)']} high-priority · realtime`;
+    `${projects.length} projects · ${counts['High Score (13+)']} high-score · realtime`;
 }
 
 function signoffsFor(pid) {
@@ -1548,6 +1654,18 @@ function renderTable() {
     const sosBlock = sos.length
       ? `<div class="signoffs">${sos.map(s => `<span class="signoff">✓ ${escapeHTML(s.signed_by_name)} (${s.role}) · ${formatWhen(s.signed_at)}</span>`).join('')}</div>`
       : '';
+    const priorityPill = p.priority
+      ? `<span class="pill pill-priority-${p.priority}">${escapeHTML(p.priority)}</span>`
+      : '<span style="color:var(--fg-faint)">—</span>';
+    const deliverableBlock = p.deliverable_url
+      ? `<div><a class="deliverable-link" href="${escapeHTML(p.deliverable_url)}" target="_blank" rel="noopener noreferrer">View live project</a></div>`
+      : '';
+    const notesBlock = p.notes
+      ? `<div class="notes-block">
+           <div class="field-label">Notes / Open Questions</div>
+           <div class="notes-body">${escapeHTML(p.notes)}</div>
+         </div>`
+      : '';
     return `
       <tr data-id="${p.id}" class="main-row">
         <td class="theme">${escapeHTML(p.theme)}</td>
@@ -1559,23 +1677,26 @@ function renderTable() {
           <div class="progress-text">${pct}%</div>
         </td>
         <td>${target}</td>
+        <td>${priorityPill}</td>
         <td><div class="score-bar"><div class="score-fill ${sc}" style="width:${(p.score/15)*100}%"></div><span class="score-text">${p.score}/15</span></div></td>
         <td class="success-metric">${sm}</td>
         <td class="risk-flags">${renderRiskFlags(p.risk_flags)}</td>
       </tr>
       <tr class="expandable-row" data-for="${p.id}">
-        <td colspan="9">
+        <td colspan="10">
           <div class="desc">${escapeHTML(p.description || '—')}</div>
+          ${deliverableBlock}
           <div class="grid">
+            <div><div class="field-label">Priority</div><div class="field-value">${p.priority ? `<span class="pill pill-priority-${p.priority}">${escapeHTML(p.priority)}</span>` : '—'}</div></div>
             <div><div class="field-label">Impact</div><div class="field-value">${p.impact ?? '—'}/5</div></div>
             <div><div class="field-label">Ease</div><div class="field-value">${p.ease ?? '—'}/5</div></div>
             <div><div class="field-label">Strategic Fit</div><div class="field-value">${p.strategic_fit ?? '—'}/5</div></div>
             <div><div class="field-label">Total Score</div><div class="field-value">${p.score}/15</div></div>
             <div><div class="field-label">Success Metric</div><div class="field-value">${escapeHTML(p.success_metric || '—')}</div></div>
             <div><div class="field-label">Risk Flags</div><div class="field-value">${renderRiskFlags(p.risk_flags) || '—'}</div></div>
-            <div><div class="field-label">Notes / Open Questions</div><div class="field-value">${escapeHTML(p.notes || '—')}</div></div>
             <div><div class="field-label">Updated</div><div class="field-value">${formatWhen(p.updated_at)}</div></div>
           </div>
+          ${notesBlock}
           ${sosBlock}
           ${isAdmin() ? `
             <div class="row-actions">
@@ -1660,11 +1781,12 @@ function attachEvents() {
   document.getElementById('theme-filter').addEventListener('change', e => { filterState.theme = e.target.value; render(); });
   document.getElementById('status-filter').addEventListener('change', e => { filterState.status = e.target.value; render(); });
   document.getElementById('owner-filter').addEventListener('change', e => { filterState.owner = e.target.value; render(); });
+  document.getElementById('priority-filter').addEventListener('change', e => { filterState.priority = e.target.value; render(); });
   document.getElementById('score-filter').addEventListener('change', e => { filterState.score = e.target.value; render(); });
   document.getElementById('reset-filters').addEventListener('click', () => {
-    filterState = { search: '', theme: '', status: '', owner: '', score: '', sortBy: 'score', sortDir: 'desc' };
+    filterState = { search: '', theme: '', status: '', owner: '', priority: '', score: '', sortBy: 'score', sortDir: 'desc' };
     document.getElementById('search').value = '';
-    ['theme','status','owner','score'].forEach(k => document.getElementById(k + '-filter').value = '');
+    ['theme','status','owner','priority','score'].forEach(k => document.getElementById(k + '-filter').value = '');
     render();
   });
   document.getElementById('export-csv').addEventListener('click', exportCSV);
@@ -1710,6 +1832,8 @@ function openProjectModal(id) {
   fld('impact',        p?.impact ?? '');
   fld('ease',          p?.ease ?? '');
   fld('strategic_fit', p?.strategic_fit ?? '');
+  fld('priority',      p?.priority || '');
+  fld('deliverable_url', p?.deliverable_url || '');
   fld('description',   p?.description);
   fld('success_metric',p?.success_metric);
   fld('risk_flags',    (p?.risk_flags || []).join(', '));
@@ -1729,19 +1853,21 @@ async function saveProject(e) {
   const num = v => v === '' ? null : Number(v);
 
   const payload = {
-    project_name:   get('project_name'),
-    theme:          get('theme'),
-    status:         get('status'),
-    owners:         parseCSV(get('owners')),
-    progress:       get('progress') === '' ? 0 : Math.max(0, Math.min(1, Number(get('progress')) / 100)),
-    target_date:    get('target_date') || null,
-    impact:         num(get('impact')),
-    ease:           num(get('ease')),
-    strategic_fit:  num(get('strategic_fit')),
-    description:    get('description') || null,
-    success_metric: get('success_metric') || null,
-    risk_flags:     parseCSV(get('risk_flags')),
-    notes:          get('notes') || null,
+    project_name:    get('project_name'),
+    theme:           get('theme'),
+    status:          get('status'),
+    owners:          parseCSV(get('owners')),
+    progress:        get('progress') === '' ? 0 : Math.max(0, Math.min(1, Number(get('progress')) / 100)),
+    target_date:     get('target_date') || null,
+    impact:          num(get('impact')),
+    ease:            num(get('ease')),
+    strategic_fit:   num(get('strategic_fit')),
+    priority:        get('priority') || null,
+    deliverable_url: get('deliverable_url') || null,
+    description:     get('description') || null,
+    success_metric:  get('success_metric') || null,
+    risk_flags:      parseCSV(get('risk_flags')),
+    notes:           get('notes') || null,
   };
 
   const btn = document.getElementById('modal-save');
@@ -1823,7 +1949,7 @@ async function saveSignoff(e) {
 // ============================================================================
 function exportCSV() {
   const rows = filterProjects();
-  const headers = ['ID','Theme','Project','Status','Owners','Progress %','Target','Impact','Ease','StratFit','Score','Success Metric','Risk Flags','Description','Notes'];
+  const headers = ['ID','Theme','Project','Status','Owners','Progress %','Target','Priority','Impact','Ease','StratFit','Score','Deliverable URL','Success Metric','Risk Flags','Description','Notes'];
   const lines = [headers.join(',')];
   rows.forEach(p => {
     const row = [
@@ -1831,7 +1957,9 @@ function exportCSV() {
       (p.owners || []).join(' + '),
       Math.round((p.progress || 0) * 100),
       p.target_date || '',
+      p.priority ?? '',
       p.impact ?? '', p.ease ?? '', p.strategic_fit ?? '', p.score,
+      p.deliverable_url ?? '',
       p.success_metric ?? '', (p.risk_flags || []).join(' · '),
       p.description ?? '', p.notes ?? '',
     ];
