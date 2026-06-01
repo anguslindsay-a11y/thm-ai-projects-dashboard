@@ -1284,9 +1284,9 @@ footer::before {
     </div>
 
     <h2>AI Projects Dashboard</h2>
-    <p class="login-sub">Sign in to view and manage the project registry.</p>
+    <p class="login-sub">Sign in with your <strong>@thmmedia.com</strong> email. New here? Use the temporary password <strong>THMnew2026!</strong> — you'll set your own right after.</p>
 
-    <div style="display: flex; gap: 4px; margin-bottom: 20px; background: var(--bg-panel); padding: 4px; border-radius: 8px; border: 1px solid var(--hairline);">
+    <div style="display: none; gap: 4px; margin-bottom: 20px; background: var(--bg-panel); padding: 4px; border-radius: 8px; border: 1px solid var(--hairline);">
       <button type="button" class="login-tab active" data-mode="password" style="flex:1; background:#fff; color:var(--indigo); border:none; padding:8px; border-radius:6px; font-weight:600; cursor:pointer; font-size: 13px; box-shadow: var(--shadow-1);">Password</button>
       <button type="button" class="login-tab" data-mode="otp" style="flex:1; background:transparent; color:var(--fg-muted); border:none; padding:8px; border-radius:6px; font-weight:600; cursor:pointer; font-size: 13px;">Email code</button>
     </div>
@@ -1302,7 +1302,7 @@ footer::before {
 
     <!-- OTP LOGIN (backup) -->
     <form id="login-form" style="display:none">
-      <p style="font-size: 13px; color: var(--fg-muted); margin: 0 0 16px;">We'll email you a 6-digit code.</p>
+      <p style="font-size: 13px; color: var(--fg-muted); margin: 0 0 16px;">Enter your <strong>@thmmedia.com</strong> email and we'll send a 6-digit code. New here? This creates your account — you'll set a password next.</p>
       <label for="email">Email</label>
       <input id="email" type="email" required placeholder="you@thmmedia.com" autocomplete="email">
       <button type="submit" id="login-btn">Send code</button>
@@ -1344,7 +1344,7 @@ footer::before {
   </header>
 
   <div id="viewer-banner" class="viewer-banner" style="display:none">
-    You're signed in as a viewer — projects are read-only, but you can still submit ideas on the Intake tab. Ask Masen or Angus for edit access.
+    Welcome! Submit a project idea below and the AI team will review it. You'll see the status of anything you submit here.
   </div>
 
   <main>
@@ -1756,6 +1756,30 @@ footer::before {
   </div>
 </div>
 
+<!-- SET-PASSWORD MODAL (required on first sign-in; locked, can't dismiss) -->
+<div id="password-modal" class="modal-backdrop" data-locked="1">
+  <div class="modal" style="max-width:460px" role="dialog" aria-modal="true" aria-labelledby="password-title">
+    <h2 id="password-title">Choose your password</h2>
+    <p class="modal-sub">You're signed in with the temporary password. Set your own password to finish — you'll use it from now on.</p>
+    <form id="password-setup-form">
+      <div class="form-grid">
+        <div class="full">
+          <label for="ps-pw">New password</label>
+          <input id="ps-pw" type="password" minlength="8" required autocomplete="new-password" placeholder="At least 8 characters">
+        </div>
+        <div class="full">
+          <label for="ps-pw2">Confirm password</label>
+          <input id="ps-pw2" type="password" minlength="8" required autocomplete="new-password">
+        </div>
+      </div>
+      <div id="password-err" class="modal-err" style="display:none"></div>
+      <div class="modal-actions">
+        <button type="submit" class="btn-save">Save password &amp; continue</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 // ============================================================================
 // CONFIG
@@ -1890,7 +1914,10 @@ document.querySelectorAll('.login-tab').forEach(tab => {
   });
 });
 
-// PASSWORD LOGIN
+// Shared temporary password new staff use for their very first sign-in.
+const DEFAULT_TEMP_PW = 'THMnew2026!';
+
+// PASSWORD LOGIN (also bootstraps first-time accounts via the temp password)
 document.getElementById('password-form').addEventListener('submit', async e => {
   e.preventDefault();
   const email = document.getElementById('pw-email').value.trim();
@@ -1898,12 +1925,32 @@ document.getElementById('password-form').addEventListener('submit', async e => {
   const btn = document.getElementById('pw-btn');
   btn.disabled = true;
   document.getElementById('login-msg').style.display = 'none';
-  const { error, data } = await sb.auth.signInWithPassword({ email, password });
-  btn.disabled = false;
-  if (error) {
-    showMsg('err', error.message);
-    return;
+
+  let { error, data } = await sb.auth.signInWithPassword({ email, password });
+
+  // First time: signing in with the shared temp password creates the account.
+  // The DB trigger enforces @thmmedia.com; we also gate here for a clean message.
+  if (error && password === DEFAULT_TEMP_PW && /@thmmedia\.com$/i.test(email)) {
+    const up = await sb.auth.signUp({ email, password });
+    if (up.error) {
+      btn.disabled = false;
+      const m = up.error.message || '';
+      showMsg('err', /already registered|already exists/i.test(m)
+        ? 'This account already exists — sign in with your own password, not the temporary one.'
+        : m);
+      return;
+    }
+    if (!up.data.session) {
+      // "Confirm email" is ON in Supabase — they must confirm before first login.
+      btn.disabled = false;
+      showMsg('ok', 'Account created! Check your email to confirm it, then sign in with the temporary password.');
+      return;
+    }
+    data = up.data; error = null;
   }
+
+  btn.disabled = false;
+  if (error) { showMsg('err', error.message); return; }
   session = data.session;
   document.getElementById('login-screen').style.display = 'none';
   await loadProfile();
@@ -1916,7 +1963,7 @@ document.getElementById('login-form').addEventListener('submit', async e => {
   const btn = document.getElementById('login-btn');
   btn.disabled = true;
   document.getElementById('login-msg').style.display = 'none';
-  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+  const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: true } });
   btn.disabled = false;
   if (error) {
     showMsg('err', error.message);
@@ -1962,16 +2009,43 @@ document.getElementById('signout-btn').addEventListener('click', async () => {
 // link redirect path is handled by init() reading the URL hash via getSession().
 
 // ============================================================================
+// FIRST-LOGIN PASSWORD SETUP
+// ============================================================================
+function openPasswordSetup() {
+  document.getElementById('ps-pw').value = '';
+  document.getElementById('ps-pw2').value = '';
+  document.getElementById('password-err').style.display = 'none';
+  openModal(document.getElementById('password-modal'));
+}
+async function savePasswordSetup(e) {
+  e.preventDefault();
+  const pw  = document.getElementById('ps-pw').value;
+  const pw2 = document.getElementById('ps-pw2').value;
+  const err = document.getElementById('password-err');
+  if (pw.length < 8)        { err.textContent = 'Password must be at least 8 characters.'; err.style.display = 'block'; return; }
+  if (pw === DEFAULT_TEMP_PW){ err.textContent = 'Please choose a password different from the temporary one.'; err.style.display = 'block'; return; }
+  if (pw !== pw2)           { err.textContent = 'Those passwords don\'t match.'; err.style.display = 'block'; return; }
+  const { error } = await sb.auth.updateUser({ password: pw });
+  if (error) { err.textContent = error.message; err.style.display = 'block'; return; }
+  await sb.rpc('mark_password_set');
+  if (profile) profile.password_set = true;
+  dismissModal(document.getElementById('password-modal'));
+}
+
+// ============================================================================
 // DATA LOADING
 // ============================================================================
 async function mountApp() {
   document.getElementById('app').style.display = 'block';
   document.getElementById('user-name').textContent = `${profile.display_name} (${profile.role})`;
-  if (isAdmin()) {
+  const admin = isAdmin();
+  if (admin) {
     document.getElementById('new-project-btn').style.display = 'inline-block';
     document.getElementById('new-decision-btn').style.display = 'inline-block';
   } else {
+    // Intake-only: hide the Projects + Decisions tabs and show a welcome.
     document.getElementById('viewer-banner').style.display = 'block';
+    document.querySelectorAll('.viewtab').forEach(t => { if (t.dataset.view !== 'intake') t.style.display = 'none'; });
   }
   await Promise.all([fetchProjects(), fetchSignoffs(), fetchIntake(), fetchDecisions()]);
   loadFilters();
@@ -1981,7 +2055,10 @@ async function mountApp() {
   render();
   renderIntake();
   renderDecisions();
+  if (!admin) showView('intake');
   subscribeRealtime();
+  // First-time users: prompt to set a password (admins already have password_set=true).
+  if (profile && profile.password_set === false) openPasswordSetup();
 }
 
 async function fetchProjects() {
@@ -2377,6 +2454,8 @@ function attachEvents() {
   document.getElementById('decision-form').addEventListener('submit', e => { e.preventDefault(); saveDecision(false); });
   document.getElementById('decision-resolve').addEventListener('click', () => saveDecision(true));
   document.getElementById('decision-delete').addEventListener('click', deleteDecision);
+  // First-login password setup (required — no skip)
+  document.getElementById('password-setup-form').addEventListener('submit', savePasswordSetup);
 
   initModals();
 }
@@ -2399,12 +2478,12 @@ function dismissModal(backdrop) {
 }
 function initModals() {
   document.querySelectorAll('.modal-backdrop').forEach(bd => {
-    bd.addEventListener('mousedown', e => { if (e.target === bd) dismissModal(bd); });
+    bd.addEventListener('mousedown', e => { if (e.target === bd && !bd.dataset.locked) dismissModal(bd); });
   });
   document.addEventListener('keydown', e => {
     const open = document.querySelector('.modal-backdrop.open');
     if (!open) return;
-    if (e.key === 'Escape') { dismissModal(open); return; }
+    if (e.key === 'Escape') { if (!open.dataset.locked) dismissModal(open); return; }
     if (e.key === 'Tab') {
       const f = [...open.querySelectorAll('input, select, textarea, button')]
         .filter(el => !el.disabled && el.offsetParent !== null);
