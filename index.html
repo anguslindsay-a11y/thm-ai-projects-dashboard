@@ -443,11 +443,31 @@ main {
 .result-count {
   font-size: 12px;
   color: var(--fg-muted);
-  margin: 0 4px 10px;
   font-weight: 500;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+.table-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin: 0 4px 10px;
+}
+.legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  align-items: center;
+  font-size: 12px;
+  color: var(--fg-muted);
+}
+.legend .lg { font-weight: 700; margin-right: 3px; }
+.legend .lg.deliv  { color: var(--ok-fg); }
+.legend .lg.signed { color: var(--status-live-fg); }
+.legend .lg.od     { color: var(--danger-fg); }
+.legend strong { color: var(--fg-body); font-weight: 700; }
 
 /* =========================================================================
    TABLE
@@ -523,6 +543,26 @@ td.project-name .caret {
   transition: transform var(--dur) var(--ease);
 }
 tr.main-row[aria-expanded="true"] .caret { transform: rotate(90deg); color: var(--indigo); }
+td.project-name .project-line { display: flex; align-items: center; }
+td.project-name .project-theme {
+  font-family: var(--font-sub);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--indigo);
+  font-weight: 600;
+  margin-top: 3px;
+  margin-left: 19px;   /* line up under the name, past the caret */
+  opacity: 0.78;
+}
+td.priority-cell { white-space: nowrap; }
+.priority-score {
+  font-size: 11px;
+  color: var(--fg-muted);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  margin-top: 4px;
+}
 .row-marker {
   font-weight: 700;
   font-size: 12px;
@@ -1003,37 +1043,23 @@ footer::before {
 /* =========================================================================
    KPI STATUS TINTS
    ========================================================================= */
-.kpi[data-status="Live"]            { background: var(--status-live-bg);     border-color: color-mix(in srgb, var(--status-live-fg) 25%, transparent); }
-.kpi[data-status="Live"]::before    { opacity: 1; background: var(--status-live-fg); }
-.kpi[data-status="Live"] .num       { color: var(--status-live-fg); }
+/* Calm KPI accents — backgrounds stay white; only the number + left bar carry color.
+   "Needs attention" is the one tile that tints itself when it has items. */
+.kpi[data-tone="total"] .num    { color: var(--indigo); }
+.kpi[data-tone="progress"] .num { color: var(--status-progress-fg); }
+.kpi[data-tone="queue"] .num    { color: var(--status-backlog-fg); }
+.kpi[data-tone="live"] .num     { color: var(--status-live-fg); }
+.kpi[data-tone="attn"] .num     { color: var(--fg-muted); }
 
-.kpi[data-status="In Progress"]         { background: var(--status-progress-bg); border-color: color-mix(in srgb, var(--status-progress-fg) 25%, transparent); }
-.kpi[data-status="In Progress"]::before { opacity: 1; background: var(--status-progress-fg); }
-.kpi[data-status="In Progress"] .num    { color: var(--status-progress-fg); }
+.kpi[data-tone="progress"]:hover::before, .kpi[data-tone="progress"].active::before { background: var(--status-progress-fg); }
+.kpi[data-tone="live"]:hover::before,     .kpi[data-tone="live"].active::before     { background: var(--status-live-fg); }
 
-.kpi[data-status="Discovery"]         { background: var(--status-discovery-bg); border-color: color-mix(in srgb, var(--status-discovery-fg) 25%, transparent); }
-.kpi[data-status="Discovery"]::before { opacity: 1; background: var(--status-discovery-fg); }
-.kpi[data-status="Discovery"] .num    { color: var(--status-discovery-fg); }
-
-.kpi[data-status="Backlog"]         { background: var(--status-backlog-bg); border-color: color-mix(in srgb, var(--status-backlog-fg) 25%, transparent); }
-.kpi[data-status="Backlog"]::before { opacity: 1; background: var(--status-backlog-fg); }
-.kpi[data-status="Backlog"] .num    { color: var(--status-backlog-fg); }
-
-.kpi[data-status="In Review"]         { background: var(--status-review-bg); border-color: color-mix(in srgb, var(--status-review-fg) 25%, transparent); }
-.kpi[data-status="In Review"]::before { opacity: 1; background: var(--status-review-fg); }
-.kpi[data-status="In Review"] .num    { color: var(--status-review-fg); }
-
-.kpi[data-status="On Hold"]         { background: var(--status-hold-bg); border-color: color-mix(in srgb, var(--status-hold-fg) 25%, transparent); }
-.kpi[data-status="On Hold"]::before { opacity: 1; background: var(--status-hold-fg); }
-.kpi[data-status="On Hold"] .num    { color: var(--status-hold-fg); }
-
-.kpi[data-status="Cancelled"]         { background: var(--status-cancelled-bg); border-color: color-mix(in srgb, var(--status-cancelled-fg) 25%, transparent); }
-.kpi[data-status="Cancelled"]::before { opacity: 1; background: var(--status-cancelled-fg); }
-.kpi[data-status="Cancelled"] .num    { color: var(--status-cancelled-fg); }
-
-.kpi[data-special="score-hi"]         { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn-fg) 25%, transparent); }
-.kpi[data-special="score-hi"]::before { opacity: 1; background: var(--warn-fg); }
-.kpi[data-special="score-hi"] .num    { color: var(--warn-fg); }
+.kpi[data-alert="1"] {
+  background: var(--danger-bg);
+  border-color: color-mix(in srgb, var(--danger-fg) 25%, transparent);
+}
+.kpi[data-alert="1"] .num     { color: var(--danger-fg); }
+.kpi[data-alert="1"]::before  { opacity: 1; background: var(--danger-fg); }
 
 /* Total KPI keeps the existing indigo treatment via the default styles. */
 
@@ -1352,22 +1378,27 @@ footer::before {
       <button class="btn secondary" id="reset-filters">Reset</button>
     </section>
 
-    <div class="result-count" id="result-count"></div>
+    <div class="table-toolbar">
+      <div class="result-count" id="result-count"></div>
+      <div class="legend">
+        <span>Click any row for details</span>
+        <span><span class="lg deliv">↗</span> deliverable</span>
+        <span><span class="lg signed">✓</span> signed off</span>
+        <span><span class="lg od">●</span> past due</span>
+        <span><strong>Priority</strong> score /15 = Impact + Ease + Fit</span>
+      </div>
+    </div>
 
     <section class="table-wrap">
       <table id="projects-table">
         <thead>
           <tr>
-            <th data-sort="theme" tabindex="0" role="button" aria-label="Sort by Theme">Theme</th>
             <th data-sort="project_name" tabindex="0" role="button" aria-label="Sort by Project">Project</th>
             <th data-sort="status" tabindex="0" role="button" aria-label="Sort by Status">Status</th>
             <th data-sort="owners" tabindex="0" role="button" aria-label="Sort by Owner">Owner</th>
             <th data-sort="progress" tabindex="0" role="button" aria-label="Sort by Progress">Progress</th>
             <th data-sort="target_date" tabindex="0" role="button" aria-label="Sort by Target">Target</th>
-            <th data-sort="priority" tabindex="0" role="button" aria-label="Sort by Priority">Priority</th>
-            <th data-sort="score" tabindex="0" role="button" aria-label="Sort by Score">Score</th>
-            <th>Success Metric</th>
-            <th>Risk Flags</th>
+            <th data-sort="score" tabindex="0" role="button" aria-label="Sort by priority score">Priority</th>
           </tr>
         </thead>
         <tbody id="projects-body"></tbody>
@@ -1403,7 +1434,7 @@ footer::before {
   </main>
 
   <footer>
-    Source of truth: Supabase &middot; changes propagate live &middot; Click any row for details, history, and sign-off.
+    Click any project for full details and history. Edits save instantly for everyone.
   </footer>
 </div>
 
@@ -1748,7 +1779,7 @@ let signoffPid  = null;     // project being signed off
 let loadError   = null;     // last fetch error message, or null
 
 let filterState = {
-  search: '', theme: '', status: '', owner: '', priority: '', score: '',
+  search: '', theme: '', status: '', owner: '', priority: '', score: '', preset: '',
   sortBy: 'score', sortDir: 'desc',
 };
 
@@ -2012,8 +2043,21 @@ function subscribeRealtime() {
 // ============================================================================
 // RENDER
 // ============================================================================
+// KPI presets group several statuses (or compute "needs attention") into one
+// click, so people don't have to know the exact status vocabulary.
+function presetMatch(preset, p) {
+  switch (preset) {
+    case 'live':       return p.status === 'Live';
+    case 'inprogress': return p.status === 'In Progress' || p.status === 'In Review';
+    case 'queued':     return p.status === 'Backlog' || p.status === 'Discovery';
+    case 'attention':  return isOverdue(p) || (p.priority === 'High' && p.status !== 'Live' && p.status !== 'Cancelled');
+    default:           return true;
+  }
+}
+
 function filterProjects() {
   return projects.filter(p => {
+    if (filterState.preset && !presetMatch(filterState.preset, p)) return false;
     if (filterState.theme    && p.theme !== filterState.theme)   return false;
     if (filterState.status   && p.status !== filterState.status) return false;
     if (filterState.owner    && !(p.owners || []).includes(filterState.owner)) return false;
@@ -2046,46 +2090,38 @@ function filterProjects() {
 }
 
 function renderKPIs() {
-  const byStatus = s => projects.filter(p => p.status === s).length;
-  const counts = {
-    'Total':           projects.length,
-    'Live':            byStatus('Live'),
-    'In Progress':     byStatus('In Progress'),
-    'In Review':       byStatus('In Review'),
-    'Discovery':       byStatus('Discovery'),
-    'Backlog':         byStatus('Backlog'),
-    'On Hold':         byStatus('On Hold'),
-    'Cancelled':       byStatus('Cancelled'),
-    'High Score (13+)':projects.filter(p => p.score >= 13).length,
-  };
+  const live   = projects.filter(p => p.status === 'Live').length;
+  const inProg = projects.filter(p => p.status === 'In Progress' || p.status === 'In Review').length;
+  const queued = projects.filter(p => p.status === 'Backlog' || p.status === 'Discovery').length;
+  const attn   = projects.filter(p => isOverdue(p) || (p.priority === 'High' && p.status !== 'Live' && p.status !== 'Cancelled')).length;
+  const tiles = [
+    { key: '',           label: 'All projects',    n: projects.length, tone: 'total' },
+    { key: 'inprogress', label: 'In progress',     n: inProg,          tone: 'progress' },
+    { key: 'queued',     label: 'In the queue',    n: queued,          tone: 'queue' },
+    { key: 'live',       label: 'Live',            n: live,            tone: 'live' },
+    { key: 'attention',  label: 'Needs attention', n: attn,            tone: 'attn' },
+  ];
+  const noFilters = !filterState.preset && !filterState.status && !filterState.score;
   const kpis = document.getElementById('kpis');
-  kpis.innerHTML = Object.entries(counts).map(([label, n]) => {
-    const isHi   = label === 'High Score (13+)';
-    const status = (label === 'Total' || isHi) ? '' : label;
-    const special = isHi ? 'score-hi' : '';
-    const active = (status && status === filterState.status) || (isHi && filterState.score === 'high') ? 'active' : '';
-    return `<div class="kpi ${active}" data-status="${status}" data-special="${special}"><span class="num">${n}</span><span class="label">${label}</span></div>`;
+  kpis.innerHTML = tiles.map(t => {
+    const active = (t.key && t.key === filterState.preset) || (t.key === '' && noFilters) ? 'active' : '';
+    const alert = (t.key === 'attention' && t.n > 0) ? ' data-alert="1"' : '';
+    return `<div class="kpi ${active}" data-preset="${t.key}" data-tone="${t.tone}"${alert}><span class="num">${t.n}</span><span class="label">${escapeHTML(t.label)}</span></div>`;
   }).join('');
   kpis.querySelectorAll('.kpi').forEach(el => {
     el.addEventListener('click', () => {
-      const status = el.dataset.status;
-      const special = el.dataset.special;
-      if (special === 'score-hi') {
-        filterState.score = filterState.score === 'high' ? '' : 'high';
-        filterState.status = '';
-      } else if (status) {
-        filterState.status = filterState.status === status ? '' : status;
-        filterState.score = '';
-      } else {
-        filterState.status = ''; filterState.score = '';
-      }
-      document.getElementById('score-filter').value = filterState.score;
-      document.getElementById('status-filter').value = filterState.status;
+      const key = el.dataset.preset;
+      filterState.preset = (key && filterState.preset === key) ? '' : key;
+      // presets own the status/score dropdowns — clear them so they don't conflict
+      filterState.status = ''; filterState.score = '';
+      document.getElementById('status-filter').value = '';
+      document.getElementById('score-filter').value = '';
+      saveFilters();
       render();
     });
   });
   document.getElementById('header-meta').textContent =
-    `${projects.length} projects · ${counts['High Score (13+)']} high-score · realtime`;
+    `${projects.length} projects · ${live} live · ${inProg} in progress`;
 }
 
 function signoffsFor(pid) {
@@ -2098,33 +2134,31 @@ function renderTable() {
   document.getElementById('result-count').textContent = `${filtered.length} of ${projects.length} projects`;
 
   if (loadError) {
-    tbody.innerHTML = `<tr><td colspan="10" class="table-empty error">Couldn't load projects — ${escapeHTML(loadError)}<br><span class="table-empty-sub">Try refreshing. If it persists, your account may not have access yet.</span></td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="table-empty error">Couldn't load projects — ${escapeHTML(loadError)}<br><span class="table-empty-sub">Try refreshing. If it persists, your account may not have access yet.</span></td></tr>`;
     return;
   }
   if (!filtered.length) {
     const msg = projects.length
       ? 'No projects match the current filters.'
       : 'No projects in the registry yet.';
-    tbody.innerHTML = `<tr><td colspan="10" class="table-empty">${msg}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="6" class="table-empty">${msg}</td></tr>`;
     return;
   }
 
   tbody.innerHTML = filtered.map(p => {
-    const sc = scoreClass(p.score);
     const overdue = isOverdue(p);
     const target = p.target_date
       ? `<span class="${overdue ? 'target-overdue' : ''}">${formatDate(p.target_date)}${overdue ? '<span class="overdue-tag">overdue</span>' : ''}</span>`
       : '<span style="color:var(--fg-faint)">—</span>';
     const ownerTxt = (p.owners && p.owners.length) ? p.owners.join(' + ') : '<span style="color:var(--fg-faint)">unassigned</span>';
     const pct = Math.round((p.progress || 0) * 100);
-    const sm = p.success_metric ? escapeHTML(p.success_metric) : '<span style="color:var(--fg-faint)">—</span>';
     const sos = signoffsFor(p.id);
     const sosBlock = sos.length
       ? `<div class="signoffs">${sos.map(s => `<span class="signoff">✓ ${escapeHTML(s.signed_by_name)} (${s.role}) · ${formatWhen(s.signed_at)}</span>`).join('')}</div>`
       : '';
-    const priorityPill = p.priority
-      ? `<span class="pill pill-priority-${p.priority}">${escapeHTML(p.priority)}</span>`
-      : '<span style="color:var(--fg-faint)">—</span>';
+    const priorityCell =
+      (p.priority ? `<span class="pill pill-priority-${p.priority}">${escapeHTML(p.priority)}</span>` : '') +
+      `<div class="priority-score" title="Priority score = Impact + Ease + Strategic Fit, each rated 1–5">${p.score}/15</div>`;
     const deliverableBlock = p.deliverable_url
       ? `<div><a class="deliverable-link" href="${escapeHTML(deliverableHref(p.deliverable_url))}" target="_blank" rel="noopener noreferrer">${deliverableLabel(p.deliverable_url)}</a></div>`
       : '';
@@ -2139,8 +2173,10 @@ function renderTable() {
       (sos.length ? ` <span class="row-marker signed" title="Signed off (${sos.length})">✓</span>` : '');
     return `
       <tr data-id="${p.id}" class="main-row" tabindex="0" aria-expanded="false">
-        <td class="theme">${escapeHTML(p.theme)}</td>
-        <td class="project-name"><span class="caret" aria-hidden="true">›</span>${escapeHTML(p.project_name)}${rowMarkers}</td>
+        <td class="project-name">
+          <div class="project-line"><span class="caret" aria-hidden="true">›</span>${escapeHTML(p.project_name)}${rowMarkers}</div>
+          ${p.theme ? `<div class="project-theme">${escapeHTML(p.theme)}</div>` : ''}
+        </td>
         <td><span class="${pillClass(p.status)}">${escapeHTML(p.status)}</span></td>
         <td>${ownerTxt}</td>
         <td>
@@ -2148,13 +2184,10 @@ function renderTable() {
           <div class="progress-text">${pct}%</div>
         </td>
         <td>${target}</td>
-        <td>${priorityPill}</td>
-        <td><div class="score-bar"><div class="score-fill ${sc}" style="width:${(p.score/15)*100}%"></div><span class="score-text">${p.score}/15</span></div></td>
-        <td class="success-metric">${sm}</td>
-        <td class="risk-flags">${renderRiskFlags(p.risk_flags)}</td>
+        <td class="priority-cell">${priorityCell}</td>
       </tr>
       <tr class="expandable-row" data-for="${p.id}">
-        <td colspan="10">
+        <td colspan="6">
           <div class="desc">${escapeHTML(p.description || '—')}</div>
           ${deliverableBlock}
           <div class="grid">
@@ -2162,7 +2195,7 @@ function renderTable() {
             <div><div class="field-label">Impact</div><div class="field-value">${p.impact ?? '—'}/5</div></div>
             <div><div class="field-label">Ease</div><div class="field-value">${p.ease ?? '—'}/5</div></div>
             <div><div class="field-label">Strategic Fit</div><div class="field-value">${p.strategic_fit ?? '—'}/5</div></div>
-            <div><div class="field-label">Total Score</div><div class="field-value">${p.score}/15</div></div>
+            <div><div class="field-label">Priority score</div><div class="field-value">${p.score}/15 <span style="color:var(--fg-faint);font-weight:400">(Impact + Ease + Fit)</span></div></div>
             <div><div class="field-label">Success Metric</div><div class="field-value">${escapeHTML(p.success_metric || '—')}</div></div>
             <div><div class="field-label">Risk Flags</div><div class="field-value">${renderRiskFlags(p.risk_flags) || '—'}</div></div>
             <div><div class="field-label">Updated</div><div class="field-value">${formatWhen(p.updated_at)}</div></div>
@@ -2295,7 +2328,12 @@ function populateFilters() {
 }
 
 function attachEvents() {
-  const setFilter = (key, val) => { filterState[key] = val; saveFilters(); render(); };
+  const setFilter = (key, val) => {
+    filterState[key] = val;
+    if (key === 'status' || key === 'score') filterState.preset = '';  // a manual status/score pick overrides the KPI preset
+    saveFilters();
+    render();
+  };
   document.getElementById('search').addEventListener('input', e => setFilter('search', e.target.value));
   document.getElementById('theme-filter').addEventListener('change', e => setFilter('theme', e.target.value));
   document.getElementById('status-filter').addEventListener('change', e => setFilter('status', e.target.value));
@@ -2303,7 +2341,7 @@ function attachEvents() {
   document.getElementById('priority-filter').addEventListener('change', e => setFilter('priority', e.target.value));
   document.getElementById('score-filter').addEventListener('change', e => setFilter('score', e.target.value));
   document.getElementById('reset-filters').addEventListener('click', () => {
-    filterState = { search: '', theme: '', status: '', owner: '', priority: '', score: '', sortBy: 'score', sortDir: 'desc' };
+    filterState = { search: '', theme: '', status: '', owner: '', priority: '', score: '', preset: '', sortBy: 'score', sortDir: 'desc' };
     document.getElementById('search').value = '';
     ['theme','status','owner','priority','score'].forEach(k => document.getElementById(k + '-filter').value = '');
     saveFilters();
