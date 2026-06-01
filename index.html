@@ -456,9 +456,10 @@ main {
   background: var(--bg-surface);
   border-radius: var(--radius-md);
   border: 1px solid var(--hairline);
-  overflow: hidden;
+  overflow-x: auto;          /* horizontal scroll on narrow screens instead of clipping */
   box-shadow: var(--shadow-1);
 }
+table { min-width: 880px; }   /* keep columns legible; the wrap scrolls under this width */
 table {
   width: 100%;
   border-collapse: collapse;
@@ -483,6 +484,11 @@ th {
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
 th:hover { background: var(--timber-soft); color: var(--indigo); }
+th:focus-visible,
+tbody tr.main-row:focus-visible {
+  outline: 2px solid var(--indigo);
+  outline-offset: -2px;
+}
 th .sort-indicator {
   color: var(--indigo);
   margin-left: 6px;
@@ -509,6 +515,36 @@ td.project-name {
   font-size: 13.5px;
   letter-spacing: -0.005em;
 }
+td.project-name .caret {
+  display: inline-block;
+  color: var(--fg-faint);
+  font-weight: 700;
+  margin-right: 7px;
+  transition: transform var(--dur) var(--ease);
+}
+tr.main-row[aria-expanded="true"] .caret { transform: rotate(90deg); color: var(--indigo); }
+.row-marker {
+  font-weight: 700;
+  font-size: 12px;
+  cursor: help;
+}
+.row-marker.deliv  { color: var(--ok-fg); }
+.row-marker.signed { color: var(--status-live-fg); }
+
+.target-overdue { color: var(--danger-fg); font-weight: 600; white-space: nowrap; }
+.overdue-tag {
+  display: inline-block;
+  margin-left: 6px;
+  background: var(--danger-bg);
+  color: var(--danger-fg);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  padding: 1px 6px;
+  border-radius: var(--radius-pill);
+  vertical-align: middle;
+}
 td.theme {
   font-family: var(--font-sub);
   color: var(--indigo);
@@ -523,6 +559,23 @@ td.risk-flags {
   color: var(--fg-body);
   max-width: 260px;
   line-height: 1.5;
+}
+
+td.table-empty {
+  text-align: center;
+  padding: 48px 16px;
+  color: var(--fg-muted);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: default;
+}
+td.table-empty.error { color: var(--danger-fg); }
+td.table-empty .table-empty-sub {
+  display: inline-block;
+  margin-top: 6px;
+  font-size: 12.5px;
+  font-weight: 400;
+  color: var(--fg-faint);
 }
 
 /* =========================================================================
@@ -966,6 +1019,18 @@ footer::before {
 .kpi[data-status="Backlog"]::before { opacity: 1; background: var(--status-backlog-fg); }
 .kpi[data-status="Backlog"] .num    { color: var(--status-backlog-fg); }
 
+.kpi[data-status="In Review"]         { background: var(--status-review-bg); border-color: color-mix(in srgb, var(--status-review-fg) 25%, transparent); }
+.kpi[data-status="In Review"]::before { opacity: 1; background: var(--status-review-fg); }
+.kpi[data-status="In Review"] .num    { color: var(--status-review-fg); }
+
+.kpi[data-status="On Hold"]         { background: var(--status-hold-bg); border-color: color-mix(in srgb, var(--status-hold-fg) 25%, transparent); }
+.kpi[data-status="On Hold"]::before { opacity: 1; background: var(--status-hold-fg); }
+.kpi[data-status="On Hold"] .num    { color: var(--status-hold-fg); }
+
+.kpi[data-status="Cancelled"]         { background: var(--status-cancelled-bg); border-color: color-mix(in srgb, var(--status-cancelled-fg) 25%, transparent); }
+.kpi[data-status="Cancelled"]::before { opacity: 1; background: var(--status-cancelled-fg); }
+.kpi[data-status="Cancelled"] .num    { color: var(--status-cancelled-fg); }
+
 .kpi[data-special="score-hi"]         { background: var(--warn-bg); border-color: color-mix(in srgb, var(--warn-fg) 25%, transparent); }
 .kpi[data-special="score-hi"]::before { opacity: 1; background: var(--warn-fg); }
 .kpi[data-special="score-hi"] .num    { color: var(--warn-fg); }
@@ -1027,12 +1092,143 @@ footer::before {
   font-weight: 400;
 }
 
+/* =========================================================================
+   VIEW NAV (Projects / Intake / Decisions)
+   ========================================================================= */
+.viewnav {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 22px;
+  border-bottom: 1px solid var(--hairline);
+}
+.viewtab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 11px 18px;
+  font-family: var(--font-sub);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--fg-muted);
+  cursor: pointer;
+  transition: color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  margin-bottom: -1px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.viewtab:hover { color: var(--indigo); }
+.viewtab.active { color: var(--indigo); border-bottom-color: var(--indigo); }
+.viewtab:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; border-radius: 4px; }
+.tab-badge {
+  background: var(--indigo);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  letter-spacing: 0;
+}
+
+.view-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.view-title { font-size: 20px; font-weight: 700; }
+.view-sub { color: var(--fg-muted); font-size: 13.5px; margin: 4px 0 0; max-width: 640px; }
+
+/* =========================================================================
+   CARD LISTS (Intake + Decisions)
+   ========================================================================= */
+.card-list { display: flex; flex-direction: column; gap: 12px; }
+.card {
+  background: var(--bg-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  overflow: hidden;
+}
+.card-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 16px 18px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.card-row:hover { background: var(--bg-row-hover); }
+.card-row:focus-visible { outline: 2px solid var(--indigo); outline-offset: -2px; }
+.card-row .card-main { flex: 1 1 auto; min-width: 0; }
+.card-row .card-title { font-weight: 700; color: var(--fg-strong); font-size: 14px; }
+.card-row .card-meta { color: var(--fg-muted); font-size: 12.5px; margin-top: 3px; }
+.card-row .card-side { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.card-detail {
+  display: none;
+  padding: 4px 18px 18px;
+  border-top: 1px solid var(--hairline);
+  background: var(--bg-panel);
+}
+.card.open .card-detail { display: block; }
+.card-detail .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin: 16px 0;
+  padding: 16px 18px;
+  background: #fff;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+}
+.card-detail .field-label {
+  font-family: var(--font-sub);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--fg-muted);
+  font-weight: 600;
+  margin-bottom: 5px;
+}
+.card-detail .field-value { color: var(--fg-strong); font-size: 13px; font-weight: 500; line-height: 1.5; white-space: pre-wrap; }
+.card-detail .row-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+.card-detail .row-actions button {
+  background: var(--indigo); color: #fff; border: 1px solid var(--indigo);
+  padding: 8px 14px; border-radius: var(--radius-sm); font-size: 13px; font-weight: 600; cursor: pointer;
+}
+.card-detail .row-actions button.secondary { background: #fff; color: var(--fg-body); border-color: var(--hairline); font-weight: 500; }
+
+/* Intake decision pills */
+.pill-decision-pending  { background: var(--status-backlog-bg); color: var(--status-backlog-fg); }
+.pill-decision-approved { background: var(--status-live-bg);    color: var(--status-live-fg); }
+.pill-decision-deferred { background: var(--status-review-bg);  color: var(--status-review-fg); }
+.pill-decision-rejected { background: var(--danger-bg);         color: var(--danger-fg); }
+
+/* Decision urgency pills */
+.pill-urgency-Blocking  { background: var(--danger-bg);        color: var(--danger-fg); }
+.pill-urgency-NextUp    { background: var(--status-review-bg); color: var(--status-review-fg); }
+.pill-urgency-Soon      { background: var(--status-progress-bg);color: var(--status-progress-fg); }
+.pill-urgency-Eventually{ background: var(--status-backlog-bg);color: var(--status-backlog-fg); }
+.card.resolved { opacity: 0.62; }
+.card.resolved .card-title { text-decoration: line-through; }
+
 @media (max-width: 720px) {
   header { padding: 14px 18px; }
   main { padding: 20px 16px 60px; }
   header h1 { font-size: 16px; }
   .kpi .num { font-size: 26px; }
   th, tbody td { padding: 10px 12px; }
+  .modal .form-grid { grid-template-columns: 1fr; }
 }
 
 @media print {
@@ -1122,10 +1318,17 @@ footer::before {
   </header>
 
   <div id="viewer-banner" class="viewer-banner" style="display:none">
-    You're signed in as a viewer. Read-only access — ask Masen or Angus to make changes.
+    You're signed in as a viewer — projects are read-only, but you can still submit ideas on the Intake tab. Ask Masen or Angus for edit access.
   </div>
 
   <main>
+    <nav class="viewnav" id="viewnav">
+      <button type="button" class="viewtab active" data-view="projects">Projects</button>
+      <button type="button" class="viewtab" data-view="intake">Intake<span class="tab-badge" id="intake-badge" hidden></span></button>
+      <button type="button" class="viewtab" data-view="decisions">Decisions<span class="tab-badge" id="decisions-badge" hidden></span></button>
+    </nav>
+
+    <div id="view-projects" class="view">
     <section class="kpis" id="kpis"></section>
 
     <section class="filters">
@@ -1155,14 +1358,14 @@ footer::before {
       <table id="projects-table">
         <thead>
           <tr>
-            <th data-sort="theme">Theme</th>
-            <th data-sort="project_name">Project</th>
-            <th data-sort="status">Status</th>
-            <th data-sort="owners">Owner</th>
-            <th data-sort="progress">Progress</th>
-            <th data-sort="target_date">Target</th>
-            <th data-sort="priority">Priority</th>
-            <th data-sort="score">Score</th>
+            <th data-sort="theme" tabindex="0" role="button" aria-label="Sort by Theme">Theme</th>
+            <th data-sort="project_name" tabindex="0" role="button" aria-label="Sort by Project">Project</th>
+            <th data-sort="status" tabindex="0" role="button" aria-label="Sort by Status">Status</th>
+            <th data-sort="owners" tabindex="0" role="button" aria-label="Sort by Owner">Owner</th>
+            <th data-sort="progress" tabindex="0" role="button" aria-label="Sort by Progress">Progress</th>
+            <th data-sort="target_date" tabindex="0" role="button" aria-label="Sort by Target">Target</th>
+            <th data-sort="priority" tabindex="0" role="button" aria-label="Sort by Priority">Priority</th>
+            <th data-sort="score" tabindex="0" role="button" aria-label="Sort by Score">Score</th>
             <th>Success Metric</th>
             <th>Risk Flags</th>
           </tr>
@@ -1170,6 +1373,33 @@ footer::before {
         <tbody id="projects-body"></tbody>
       </table>
     </section>
+    </div><!-- /view-projects -->
+
+    <!-- INTAKE VIEW -->
+    <div id="view-intake" class="view" hidden>
+      <div class="view-head">
+        <div>
+          <h2 class="view-title">Project Intake</h2>
+          <p class="view-sub">Anyone can submit an idea. Masen, Angus, or leadership review and decide before a build starts.</p>
+        </div>
+        <button class="btn" id="new-intake-btn">+ Submit a project idea</button>
+      </div>
+      <div class="result-count" id="intake-count"></div>
+      <div id="intake-list" class="card-list"></div>
+    </div><!-- /view-intake -->
+
+    <!-- DECISIONS VIEW -->
+    <div id="view-decisions" class="view" hidden>
+      <div class="view-head">
+        <div>
+          <h2 class="view-title">Decisions Needed</h2>
+          <p class="view-sub">Open scoping &amp; approval questions across the program — bring these to the weekly AI sync.</p>
+        </div>
+        <button class="btn" id="new-decision-btn" style="display:none">+ Add decision</button>
+      </div>
+      <div class="result-count" id="decisions-count"></div>
+      <div id="decisions-list" class="card-list"></div>
+    </div><!-- /view-decisions -->
   </main>
 
   <footer>
@@ -1179,7 +1409,7 @@ footer::before {
 
 <!-- PROJECT MODAL (new + edit) -->
 <div id="project-modal" class="modal-backdrop">
-  <div class="modal">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
     <h2 id="modal-title">Edit project</h2>
     <p class="modal-sub" id="modal-sub">Changes save to Supabase and propagate to anyone with the dashboard open.</p>
     <form id="project-form">
@@ -1247,8 +1477,8 @@ footer::before {
           </select>
         </div>
         <div class="full">
-          <label for="f-deliverable_url">Deliverable URL <span style="color:var(--fg-faint); font-weight:500; text-transform:none; letter-spacing:0; font-family:var(--font-body)">(link to the live/finished project)</span></label>
-          <input id="f-deliverable_url" type="url" placeholder="https://...">
+          <label for="f-deliverable_url">Deliverable <span style="color:var(--fg-faint); font-weight:500; text-transform:none; letter-spacing:0; font-family:var(--font-body)">(link or file path — live project, doc, OneDrive/SharePoint, or Excel)</span></label>
+          <input id="f-deliverable_url" type="text" placeholder="https://…  ·  or  C:\Users\…\Book Planner.xlsx">
         </div>
         <div class="full">
           <label for="f-description">Description</label>
@@ -1279,8 +1509,8 @@ footer::before {
 
 <!-- SIGN-OFF MODAL -->
 <div id="signoff-modal" class="modal-backdrop">
-  <div class="modal" style="max-width: 480px">
-    <h2>Sign off on this project</h2>
+  <div class="modal" style="max-width: 480px" role="dialog" aria-modal="true" aria-labelledby="signoff-title">
+    <h2 id="signoff-title">Sign off on this project</h2>
     <p class="modal-sub">Records a sign-off event on this project. Anyone signed in can see who signed off and when.</p>
     <form id="signoff-form">
       <div class="form-grid">
@@ -1314,6 +1544,187 @@ footer::before {
   </div>
 </div>
 
+<!-- INTAKE SUBMIT MODAL -->
+<div id="intake-modal" class="modal-backdrop">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="intake-title">
+    <h2 id="intake-title">Submit a project idea</h2>
+    <p class="modal-sub">Fill in what you can — it's fine to leave fields blank. Masen / Angus / leadership review before any build starts.</p>
+    <form id="intake-form">
+      <div class="form-grid">
+        <div class="full">
+          <label for="i-project_name">Project name *</label>
+          <input id="i-project_name" required>
+        </div>
+        <div>
+          <label for="i-proposed_owner">Proposed owner</label>
+          <input id="i-proposed_owner" placeholder="Who would drive it?">
+        </div>
+        <div>
+          <label for="i-business_area">Business area / theme</label>
+          <select id="i-business_area">
+            <option value="">— Select —</option>
+            <option>Foundation</option>
+            <option>Sales — Rep Tools</option>
+            <option>Sales — Pipeline &amp; Renewal</option>
+            <option>Marketing</option>
+            <option>Lead Gen</option>
+            <option>Design &amp; Layout</option>
+            <option>Operations</option>
+            <option>Finance</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="i-problem_being_solved">Problem being solved</label>
+          <textarea id="i-problem_being_solved" style="min-height:60px"></textarea>
+        </div>
+        <div class="full">
+          <label for="i-why_now_strategic_fit">Why now / strategic fit</label>
+          <textarea id="i-why_now_strategic_fit" style="min-height:60px"></textarea>
+        </div>
+        <div class="full">
+          <label for="i-success_metric">Success metric</label>
+          <textarea id="i-success_metric" style="min-height:60px"></textarea>
+        </div>
+        <div class="full">
+          <label for="i-technical_approach">AI / technical approach</label>
+          <textarea id="i-technical_approach" style="min-height:60px"></textarea>
+        </div>
+        <div>
+          <label for="i-integrations_data_sources">Integrations / data sources</label>
+          <input id="i-integrations_data_sources" placeholder="Supabase, MM, CallRail…">
+        </div>
+        <div>
+          <label for="i-data_handled">Data handled (sensitivity)</label>
+          <input id="i-data_handled" placeholder="PII? Payments? Rep data?">
+        </div>
+        <div>
+          <label for="i-effort_estimate">Effort estimate</label>
+          <input id="i-effort_estimate" placeholder="&lt;1 wk · 1–4 wk · 1–3 mo">
+        </div>
+        <div>
+          <label for="i-proposed_target_date">Proposed target date</label>
+          <input id="i-proposed_target_date" type="date">
+        </div>
+        <div>
+          <label for="i-impact">Impact (1–5)</label>
+          <input id="i-impact" type="number" min="1" max="5">
+        </div>
+        <div>
+          <label for="i-ease">Ease (1–5)</label>
+          <input id="i-ease" type="number" min="1" max="5">
+        </div>
+        <div>
+          <label for="i-strategic_fit">Strategic Fit (1–5)</label>
+          <input id="i-strategic_fit" type="number" min="1" max="5">
+        </div>
+        <div class="full">
+          <label for="i-human_in_the_loop">Human-in-the-loop requirement</label>
+          <input id="i-human_in_the_loop" placeholder="Where does a human approve before output ships?">
+        </div>
+        <div class="full">
+          <label for="i-rollback_plan">Rollback plan</label>
+          <input id="i-rollback_plan" placeholder="If it goes wrong, how do we undo it?">
+        </div>
+        <div class="full">
+          <label for="i-risk_flags">Risk flags (comma-separated)</label>
+          <input id="i-risk_flags" placeholder="Human Review, Data Privacy">
+        </div>
+        <div>
+          <label for="i-stakeholders">Stakeholders / reviewers</label>
+          <input id="i-stakeholders">
+        </div>
+        <div>
+          <label for="i-open_questions">Open questions</label>
+          <input id="i-open_questions">
+        </div>
+      </div>
+      <div id="intake-err" class="modal-err" style="display:none"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" id="intake-cancel">Cancel</button>
+        <button type="submit" class="btn-save">Submit for review</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- INTAKE DECISION MODAL (admin) -->
+<div id="intake-decision-modal" class="modal-backdrop">
+  <div class="modal" style="max-width:520px" role="dialog" aria-modal="true" aria-labelledby="intake-decision-title">
+    <h2 id="intake-decision-title">Record decision</h2>
+    <p class="modal-sub" id="intake-decision-sub">Leadership decision on this intake submission.</p>
+    <form id="intake-decision-form">
+      <div class="form-grid">
+        <div>
+          <label for="id-decision">Decision *</label>
+          <select id="id-decision" required>
+            <option value="approved">Approve</option>
+            <option value="deferred">Defer</option>
+            <option value="rejected">Reject</option>
+            <option value="pending">Reset to pending</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="id-notes">Decision notes</label>
+          <textarea id="id-notes" style="min-height:70px" placeholder="Why / conditions / scope changes"></textarea>
+        </div>
+      </div>
+      <div id="intake-decision-err" class="modal-err" style="display:none"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" id="intake-decision-cancel">Cancel</button>
+        <button type="submit" class="btn-save">Save decision</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- DECISION ADD/EDIT MODAL (admin) -->
+<div id="decision-modal" class="modal-backdrop">
+  <div class="modal" style="max-width:560px" role="dialog" aria-modal="true" aria-labelledby="decision-title">
+    <h2 id="decision-title">Add decision</h2>
+    <p class="modal-sub">An open scoping or approval question for the program.</p>
+    <form id="decision-form">
+      <div class="form-grid">
+        <div>
+          <label for="d-urgency">Urgency *</label>
+          <select id="d-urgency" required>
+            <option>Blocking</option>
+            <option>Next Up</option>
+            <option selected>Soon</option>
+            <option>Eventually</option>
+          </select>
+        </div>
+        <div>
+          <label for="d-who_decides">Who decides</label>
+          <input id="d-who_decides" placeholder="Matt + Masen">
+        </div>
+        <div class="full">
+          <label for="d-decision_needed">Decision needed *</label>
+          <textarea id="d-decision_needed" required style="min-height:60px"></textarea>
+        </div>
+        <div class="full">
+          <label for="d-related_project_text">Related project</label>
+          <input id="d-related_project_text" placeholder="Project name or 'ALL projects'">
+        </div>
+        <div class="full">
+          <label for="d-notes_context">Notes / context</label>
+          <textarea id="d-notes_context" style="min-height:60px"></textarea>
+        </div>
+        <div class="full" id="d-resolution-wrap" style="display:none">
+          <label for="d-resolution_notes">Resolution notes</label>
+          <textarea id="d-resolution_notes" style="min-height:60px" placeholder="How was it decided?"></textarea>
+        </div>
+      </div>
+      <div id="decision-err" class="modal-err" style="display:none"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-delete" id="decision-delete" style="display:none">Delete</button>
+        <button type="button" class="btn-cancel" id="decision-cancel">Cancel</button>
+        <button type="button" class="btn-cancel" id="decision-resolve" style="display:none">Mark resolved</button>
+        <button type="submit" class="btn-save">Save</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <script>
 // ============================================================================
 // CONFIG
@@ -1334,6 +1745,7 @@ let signoffs    = [];       // all rows from ai_signoffs
 let audit       = {};       // project_id -> [audit rows]
 let editingId   = null;     // currently-edited project id, or null = new
 let signoffPid  = null;     // project being signed off
+let loadError   = null;     // last fetch error message, or null
 
 let filterState = {
   search: '', theme: '', status: '', owner: '', priority: '', score: '',
@@ -1348,7 +1760,29 @@ function escapeHTML(s) {
 }
 function pillClass(status) { return 'pill pill-' + (status || '').replace(/\s/g,''); }
 function scoreClass(score) { return score >= 13 ? 'high' : score >= 9 ? 'med' : 'low'; }
+// A deliverable can be a web link OR a file path (incl. an Excel workbook on
+// OneDrive / a local drive). Turn a Windows path into a file:// link so it opens.
+function deliverableHref(url) {
+  if (!url) return '';
+  if (/^[A-Za-z]:[\\/]/.test(url)) return 'file:///' + url.replace(/\\/g, '/');
+  if (/^\\\\/.test(url))           return 'file:' + url.replace(/\\/g, '/'); // UNC share
+  return url;
+}
+// Label the link by what it points to, so an Excel deliverable doesn't read "View live project".
+function deliverableLabel(url) {
+  const u = (url || '').toLowerCase();
+  if (/\.(xlsx?|csv|ods)(\?|#|$)/.test(u))        return 'Open spreadsheet';
+  if (/\.(docx?|pdf|pptx?|txt|md)(\?|#|$)/.test(u)) return 'Open document';
+  if (/^[a-z]:[\\/]|^\\\\/.test(u))                return 'Open file';
+  return 'View live project';
+}
 function isAdmin() { return profile && profile.role === 'admin'; }
+// A target is "overdue" only if it's in the past AND the project isn't done/dropped.
+function isOverdue(p) {
+  if (!p.target_date || p.status === 'Live' || p.status === 'Cancelled') return false;
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  return new Date(p.target_date + 'T00:00:00') < today;
+}
 function formatDate(s) {
   if (!s) return '';
   const d = new Date(s + (s.length === 10 ? 'T12:00:00' : ''));
@@ -1504,19 +1938,25 @@ async function mountApp() {
   document.getElementById('user-name').textContent = `${profile.display_name} (${profile.role})`;
   if (isAdmin()) {
     document.getElementById('new-project-btn').style.display = 'inline-block';
+    document.getElementById('new-decision-btn').style.display = 'inline-block';
   } else {
     document.getElementById('viewer-banner').style.display = 'block';
   }
-  await Promise.all([fetchProjects(), fetchSignoffs()]);
+  await Promise.all([fetchProjects(), fetchSignoffs(), fetchIntake(), fetchDecisions()]);
+  loadFilters();
   populateFilters();
+  applyFilterUI();
   attachEvents();
   render();
+  renderIntake();
+  renderDecisions();
   subscribeRealtime();
 }
 
 async function fetchProjects() {
   const { data, error } = await sb.from('ai_projects').select('*').order('score', { ascending: false });
-  if (error) { console.error(error); return; }
+  if (error) { console.error(error); loadError = error.message; projects = []; return; }
+  loadError = null;
   projects = data;
 }
 
@@ -1551,11 +1991,20 @@ function subscribeRealtime() {
       else if (payload.eventType === 'DELETE') {
         projects = projects.filter(p => p.id !== payload.old.id);
       }
+      populateFilters();   // a new/removed project may add/drop a theme or owner
       render();
     })
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_signoffs' }, async () => {
       await fetchSignoffs();
       render();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_intake_submissions' }, async () => {
+      await fetchIntake();
+      renderIntake();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_decisions' }, async () => {
+      await fetchDecisions();
+      renderDecisions();
     })
     .subscribe();
 }
@@ -1597,12 +2046,16 @@ function filterProjects() {
 }
 
 function renderKPIs() {
+  const byStatus = s => projects.filter(p => p.status === s).length;
   const counts = {
     'Total':           projects.length,
-    'Live':            projects.filter(p => p.status === 'Live').length,
-    'In Progress':     projects.filter(p => p.status === 'In Progress').length,
-    'Discovery':       projects.filter(p => p.status === 'Discovery').length,
-    'Backlog':         projects.filter(p => p.status === 'Backlog').length,
+    'Live':            byStatus('Live'),
+    'In Progress':     byStatus('In Progress'),
+    'In Review':       byStatus('In Review'),
+    'Discovery':       byStatus('Discovery'),
+    'Backlog':         byStatus('Backlog'),
+    'On Hold':         byStatus('On Hold'),
+    'Cancelled':       byStatus('Cancelled'),
     'High Score (13+)':projects.filter(p => p.score >= 13).length,
   };
   const kpis = document.getElementById('kpis');
@@ -1644,9 +2097,24 @@ function renderTable() {
   const filtered = filterProjects();
   document.getElementById('result-count').textContent = `${filtered.length} of ${projects.length} projects`;
 
+  if (loadError) {
+    tbody.innerHTML = `<tr><td colspan="10" class="table-empty error">Couldn't load projects — ${escapeHTML(loadError)}<br><span class="table-empty-sub">Try refreshing. If it persists, your account may not have access yet.</span></td></tr>`;
+    return;
+  }
+  if (!filtered.length) {
+    const msg = projects.length
+      ? 'No projects match the current filters.'
+      : 'No projects in the registry yet.';
+    tbody.innerHTML = `<tr><td colspan="10" class="table-empty">${msg}</td></tr>`;
+    return;
+  }
+
   tbody.innerHTML = filtered.map(p => {
     const sc = scoreClass(p.score);
-    const target = p.target_date ? formatDate(p.target_date) : '<span style="color:var(--fg-faint)">—</span>';
+    const overdue = isOverdue(p);
+    const target = p.target_date
+      ? `<span class="${overdue ? 'target-overdue' : ''}">${formatDate(p.target_date)}${overdue ? '<span class="overdue-tag">overdue</span>' : ''}</span>`
+      : '<span style="color:var(--fg-faint)">—</span>';
     const ownerTxt = (p.owners && p.owners.length) ? p.owners.join(' + ') : '<span style="color:var(--fg-faint)">unassigned</span>';
     const pct = Math.round((p.progress || 0) * 100);
     const sm = p.success_metric ? escapeHTML(p.success_metric) : '<span style="color:var(--fg-faint)">—</span>';
@@ -1658,7 +2126,7 @@ function renderTable() {
       ? `<span class="pill pill-priority-${p.priority}">${escapeHTML(p.priority)}</span>`
       : '<span style="color:var(--fg-faint)">—</span>';
     const deliverableBlock = p.deliverable_url
-      ? `<div><a class="deliverable-link" href="${escapeHTML(p.deliverable_url)}" target="_blank" rel="noopener noreferrer">View live project</a></div>`
+      ? `<div><a class="deliverable-link" href="${escapeHTML(deliverableHref(p.deliverable_url))}" target="_blank" rel="noopener noreferrer">${deliverableLabel(p.deliverable_url)}</a></div>`
       : '';
     const notesBlock = p.notes
       ? `<div class="notes-block">
@@ -1666,10 +2134,13 @@ function renderTable() {
            <div class="notes-body">${escapeHTML(p.notes)}</div>
          </div>`
       : '';
+    const rowMarkers =
+      (p.deliverable_url ? ` <span class="row-marker deliv" title="${escapeHTML(deliverableLabel(p.deliverable_url))}">↗</span>` : '') +
+      (sos.length ? ` <span class="row-marker signed" title="Signed off (${sos.length})">✓</span>` : '');
     return `
-      <tr data-id="${p.id}" class="main-row">
+      <tr data-id="${p.id}" class="main-row" tabindex="0" aria-expanded="false">
         <td class="theme">${escapeHTML(p.theme)}</td>
-        <td class="project-name">${escapeHTML(p.project_name)}</td>
+        <td class="project-name"><span class="caret" aria-hidden="true">›</span>${escapeHTML(p.project_name)}${rowMarkers}</td>
         <td><span class="${pillClass(p.status)}">${escapeHTML(p.status)}</span></td>
         <td>${ownerTxt}</td>
         <td>
@@ -1716,11 +2187,14 @@ function renderTable() {
   }).join('');
 
   tbody.querySelectorAll('.main-row').forEach(row => {
-    row.addEventListener('click', e => {
+    const toggle = () => {
+      const ex = tbody.querySelector(`.expandable-row[data-for="${row.dataset.id}"]`);
+      if (ex) row.setAttribute('aria-expanded', ex.classList.toggle('open') ? 'true' : 'false');
+    };
+    row.addEventListener('click', e => { if (!e.target.closest('button')) toggle(); });
+    row.addEventListener('keydown', e => {
       if (e.target.closest('button')) return;
-      const id = row.dataset.id;
-      const ex = tbody.querySelector(`.expandable-row[data-for="${id}"]`);
-      if (ex) ex.classList.toggle('open');
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
     });
   });
 
@@ -1762,50 +2236,146 @@ async function toggleHistory(pid) {
 
 function render() { renderKPIs(); renderTable(); }
 
+// --- Filter persistence (localStorage) so a refresh keeps your view ---
+const FILTER_KEY = 'thm_ai_filters_v1';
+function saveFilters() {
+  try { localStorage.setItem(FILTER_KEY, JSON.stringify(filterState)); } catch (_) {}
+}
+function loadFilters() {
+  try {
+    const s = JSON.parse(localStorage.getItem(FILTER_KEY) || 'null');
+    if (s && typeof s === 'object') filterState = { ...filterState, ...s };
+  } catch (_) {}
+}
+function applyFilterUI() {
+  document.getElementById('search').value = filterState.search || '';
+  ['theme', 'status', 'owner', 'priority', 'score'].forEach(k => {
+    const el = document.getElementById(k + '-filter');
+    if (!el) return;
+    el.value = filterState[k] || '';
+    if (el.value !== (filterState[k] || '')) filterState[k] = '';   // saved option no longer exists
+  });
+}
+
+function updateSortIndicators() {
+  document.querySelectorAll('th[data-sort]').forEach(t => {
+    t.innerHTML = t.textContent.replace(/[▲▼]/g, '').trim();
+    if (t.dataset.sort === filterState.sortBy) {
+      t.innerHTML += ` <span class="sort-indicator">${filterState.sortDir === 'desc' ? '▼' : '▲'}</span>`;
+      t.setAttribute('aria-sort', filterState.sortDir === 'desc' ? 'descending' : 'ascending');
+    } else {
+      t.removeAttribute('aria-sort');
+    }
+  });
+}
+function applySort(key) {
+  if (filterState.sortBy === key) filterState.sortDir = filterState.sortDir === 'asc' ? 'desc' : 'asc';
+  else { filterState.sortBy = key; filterState.sortDir = ['progress', 'score'].includes(key) ? 'desc' : 'asc'; }
+  updateSortIndicators();
+  saveFilters();
+  renderTable();
+}
+
 // ============================================================================
 // FILTERS
 // ============================================================================
+// Idempotent: rebuilds option lists from current data and preserves the active
+// selection, so it's safe to call again after a realtime insert/delete.
 function populateFilters() {
   const themes = [...new Set(projects.map(p => p.theme).filter(Boolean))].sort();
   const owners = [...new Set(projects.flatMap(p => p.owners || []).filter(Boolean))].sort();
-  const themeSel = document.getElementById('theme-filter');
-  const ownerSel = document.getElementById('owner-filter');
-  const statusSel = document.getElementById('status-filter');
-  themes.forEach(t => themeSel.innerHTML += `<option value="${escapeHTML(t)}">${escapeHTML(t)}</option>`);
-  owners.forEach(o => ownerSel.innerHTML += `<option value="${escapeHTML(o)}">${escapeHTML(o)}</option>`);
-  STATUSES.forEach(s => statusSel.innerHTML += `<option value="${escapeHTML(s)}">${escapeHTML(s)}</option>`);
+  const fill = (sel, values, base) => {
+    const cur = sel.value;
+    sel.innerHTML = base + values.map(v => `<option value="${escapeHTML(v)}">${escapeHTML(v)}</option>`).join('');
+    if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
+  };
+  fill(document.getElementById('theme-filter'),  themes,   '<option value="">All Themes</option>');
+  fill(document.getElementById('owner-filter'),  owners,   '<option value="">All Owners</option>');
+  fill(document.getElementById('status-filter'), STATUSES, '<option value="">All Statuses</option>');
 }
 
 function attachEvents() {
-  document.getElementById('search').addEventListener('input', e => { filterState.search = e.target.value; render(); });
-  document.getElementById('theme-filter').addEventListener('change', e => { filterState.theme = e.target.value; render(); });
-  document.getElementById('status-filter').addEventListener('change', e => { filterState.status = e.target.value; render(); });
-  document.getElementById('owner-filter').addEventListener('change', e => { filterState.owner = e.target.value; render(); });
-  document.getElementById('priority-filter').addEventListener('change', e => { filterState.priority = e.target.value; render(); });
-  document.getElementById('score-filter').addEventListener('change', e => { filterState.score = e.target.value; render(); });
+  const setFilter = (key, val) => { filterState[key] = val; saveFilters(); render(); };
+  document.getElementById('search').addEventListener('input', e => setFilter('search', e.target.value));
+  document.getElementById('theme-filter').addEventListener('change', e => setFilter('theme', e.target.value));
+  document.getElementById('status-filter').addEventListener('change', e => setFilter('status', e.target.value));
+  document.getElementById('owner-filter').addEventListener('change', e => setFilter('owner', e.target.value));
+  document.getElementById('priority-filter').addEventListener('change', e => setFilter('priority', e.target.value));
+  document.getElementById('score-filter').addEventListener('change', e => setFilter('score', e.target.value));
   document.getElementById('reset-filters').addEventListener('click', () => {
     filterState = { search: '', theme: '', status: '', owner: '', priority: '', score: '', sortBy: 'score', sortDir: 'desc' };
     document.getElementById('search').value = '';
     ['theme','status','owner','priority','score'].forEach(k => document.getElementById(k + '-filter').value = '');
+    saveFilters();
+    updateSortIndicators();
     render();
   });
   document.getElementById('export-csv').addEventListener('click', exportCSV);
   document.getElementById('new-project-btn').addEventListener('click', () => openProjectModal(null));
   document.querySelectorAll('th[data-sort]').forEach(th => {
-    th.addEventListener('click', () => {
-      const key = th.dataset.sort;
-      if (filterState.sortBy === key) filterState.sortDir = filterState.sortDir === 'asc' ? 'desc' : 'asc';
-      else { filterState.sortBy = key; filterState.sortDir = ['progress','score'].includes(key) ? 'desc' : 'asc'; }
-      document.querySelectorAll('th[data-sort]').forEach(t => t.innerHTML = t.textContent.replace(/[▲▼]/g,'').trim());
-      th.innerHTML += ` <span class="sort-indicator">${filterState.sortDir === 'desc' ? '▼' : '▲'}</span>`;
-      renderTable();
+    th.addEventListener('click', () => applySort(th.dataset.sort));
+    th.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); applySort(th.dataset.sort); }
     });
   });
+  updateSortIndicators();   // show the default (score ▼) indicator on load
   document.getElementById('modal-cancel').addEventListener('click', closeProjectModal);
   document.getElementById('modal-delete').addEventListener('click', deleteProject);
   document.getElementById('project-form').addEventListener('submit', saveProject);
   document.getElementById('signoff-cancel').addEventListener('click', closeSignoffModal);
   document.getElementById('signoff-form').addEventListener('submit', saveSignoff);
+
+  // View tabs
+  document.querySelectorAll('.viewtab').forEach(t => t.addEventListener('click', () => showView(t.dataset.view)));
+  // Intake
+  document.getElementById('new-intake-btn').addEventListener('click', openIntakeModal);
+  document.getElementById('intake-cancel').addEventListener('click', () => dismissModal(document.getElementById('intake-modal')));
+  document.getElementById('intake-form').addEventListener('submit', saveIntake);
+  document.getElementById('intake-decision-cancel').addEventListener('click', () => dismissModal(document.getElementById('intake-decision-modal')));
+  document.getElementById('intake-decision-form').addEventListener('submit', saveIntakeDecision);
+  // Decisions
+  document.getElementById('new-decision-btn').addEventListener('click', () => openDecisionModal(null));
+  document.getElementById('decision-cancel').addEventListener('click', () => dismissModal(document.getElementById('decision-modal')));
+  document.getElementById('decision-form').addEventListener('submit', e => { e.preventDefault(); saveDecision(false); });
+  document.getElementById('decision-resolve').addEventListener('click', () => saveDecision(true));
+  document.getElementById('decision-delete').addEventListener('click', deleteDecision);
+
+  initModals();
+}
+
+// ============================================================================
+// MODAL PLUMBING (focus, Esc, backdrop-click, scroll-lock) — shared
+// ============================================================================
+let lastFocused = null;
+function openModal(backdrop) {
+  lastFocused = document.activeElement;
+  backdrop.classList.add('open');
+  document.body.style.overflow = 'hidden';
+  const first = backdrop.querySelector('input, select, textarea, button');
+  if (first) setTimeout(() => first.focus(), 30);
+}
+function dismissModal(backdrop) {
+  backdrop.classList.remove('open');
+  if (!document.querySelector('.modal-backdrop.open')) document.body.style.overflow = '';
+  if (lastFocused && lastFocused.focus) { try { lastFocused.focus(); } catch (_) {} }
+}
+function initModals() {
+  document.querySelectorAll('.modal-backdrop').forEach(bd => {
+    bd.addEventListener('mousedown', e => { if (e.target === bd) dismissModal(bd); });
+  });
+  document.addEventListener('keydown', e => {
+    const open = document.querySelector('.modal-backdrop.open');
+    if (!open) return;
+    if (e.key === 'Escape') { dismissModal(open); return; }
+    if (e.key === 'Tab') {
+      const f = [...open.querySelectorAll('input, select, textarea, button')]
+        .filter(el => !el.disabled && el.offsetParent !== null);
+      if (!f.length) return;
+      const first = f[0], last = f[f.length - 1];
+      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+    }
+  });
 }
 
 // ============================================================================
@@ -1813,6 +2383,7 @@ function attachEvents() {
 // ============================================================================
 function openProjectModal(id) {
   if (!isAdmin()) return;
+  showView('projects');
   editingId = id;
   const p = id ? projects.find(x => x.id === id) : null;
   document.getElementById('modal-title').textContent = id ? 'Edit project' : 'New project';
@@ -1839,11 +2410,11 @@ function openProjectModal(id) {
   fld('risk_flags',    (p?.risk_flags || []).join(', '));
   fld('notes',         p?.notes);
   document.getElementById('modal-err').style.display = 'none';
-  document.getElementById('project-modal').classList.add('open');
+  openModal(document.getElementById('project-modal'));
 }
 
 function closeProjectModal() {
-  document.getElementById('project-modal').classList.remove('open');
+  dismissModal(document.getElementById('project-modal'));
   editingId = null;
 }
 
@@ -1868,6 +2439,7 @@ async function saveProject(e) {
     success_metric:  get('success_metric') || null,
     risk_flags:      parseCSV(get('risk_flags')),
     notes:           get('notes') || null,
+    updated_by:      profile.id,
   };
 
   const btn = document.getElementById('modal-save');
@@ -1879,6 +2451,7 @@ async function saveProject(e) {
   if (editingId) {
     res = await sb.from('ai_projects').update(payload).eq('id', editingId);
   } else {
+    payload.created_by = profile.id;
     res = await sb.from('ai_projects').insert(payload);
   }
 
@@ -1916,11 +2489,11 @@ function openSignoffModal(pid) {
   document.getElementById('s-type').value = 'project_ship';
   document.getElementById('s-notes').value = '';
   document.getElementById('signoff-err').style.display = 'none';
-  document.getElementById('signoff-modal').classList.add('open');
+  openModal(document.getElementById('signoff-modal'));
 }
 
 function closeSignoffModal() {
-  document.getElementById('signoff-modal').classList.remove('open');
+  dismissModal(document.getElementById('signoff-modal'));
   signoffPid = null;
 }
 
@@ -1972,6 +2545,290 @@ function exportCSV() {
   a.download = 'thm-ai-projects-' + new Date().toISOString().slice(0,10) + '.csv';
   a.click();
   URL.revokeObjectURL(url);
+}
+
+// ============================================================================
+// GOVERNANCE — view switching, Intake, Decisions
+// ============================================================================
+let intake = [];
+let decisions = [];
+let currentView = 'projects';
+let intakeDecisionId = null;
+let editingDecisionId = null;
+
+const URGENCY_RANK = { 'Blocking': 0, 'Next Up': 1, 'Soon': 2, 'Eventually': 3 };
+
+function showView(name) {
+  currentView = name;
+  document.querySelectorAll('.viewtab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
+  document.getElementById('view-projects').hidden  = name !== 'projects';
+  document.getElementById('view-intake').hidden    = name !== 'intake';
+  document.getElementById('view-decisions').hidden = name !== 'decisions';
+}
+
+// One label/value cell for a card detail grid; renders nothing when empty.
+function field(label, val) {
+  if (val === null || val === undefined || String(val).trim() === '') return '';
+  return `<div><div class="field-label">${escapeHTML(label)}</div><div class="field-value">${escapeHTML(String(val))}</div></div>`;
+}
+
+// Expand/collapse + keyboard for the .card rows in a given container.
+function wireCards(containerId) {
+  document.getElementById(containerId).querySelectorAll('.card-row').forEach(row => {
+    const card = row.closest('.card');
+    if (!card.dataset.expandable) return;
+    const toggle = () => row.setAttribute('aria-expanded', card.classList.toggle('open') ? 'true' : 'false');
+    row.addEventListener('click', e => { if (!e.target.closest('button')) toggle(); });
+    row.addEventListener('keydown', e => {
+      if (e.target.closest('button')) return;
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
+    });
+  });
+}
+
+function setBadge(id, n) {
+  const b = document.getElementById(id);
+  if (n > 0) { b.hidden = false; b.textContent = n; } else { b.hidden = true; }
+}
+
+// ---- Intake ----
+async function fetchIntake() {
+  const { data, error } = await sb.from('ai_intake_submissions').select('*').order('submitted_at', { ascending: false });
+  if (error) { console.error(error); return; }
+  intake = data;
+}
+
+function renderIntake() {
+  const list = document.getElementById('intake-list');
+  const pending = intake.filter(s => (s.leadership_decision || 'pending') === 'pending').length;
+  document.getElementById('intake-count').textContent = `${intake.length} submission${intake.length !== 1 ? 's' : ''} · ${pending} pending`;
+  setBadge('intake-badge', pending);
+
+  if (!intake.length) {
+    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta">No submissions yet. Anyone can submit an idea with the button above.</div></div></div></div>`;
+    return;
+  }
+  list.innerHTML = intake.map(s => {
+    const dec = s.leadership_decision || 'pending';
+    const score = (s.impact || 0) + (s.ease || 0) + (s.strategic_fit || 0);
+    return `
+    <div class="card" data-expandable="1">
+      <div class="card-row" tabindex="0" role="button" aria-expanded="false">
+        <div class="card-main">
+          <div class="card-title">${escapeHTML(s.project_name)}</div>
+          <div class="card-meta">${escapeHTML(s.business_area || 'No theme')} · by ${escapeHTML(s.submitted_by_name)} · ${formatWhen(s.submitted_at)}</div>
+        </div>
+        <div class="card-side"><span class="pill pill-decision-${escapeHTML(dec)}">${escapeHTML(dec)}</span></div>
+      </div>
+      <div class="card-detail">
+        <div class="grid">
+          ${field('Proposed owner', s.proposed_owner)}
+          ${field('Problem being solved', s.problem_being_solved)}
+          ${field('Why now / strategic fit', s.why_now_strategic_fit)}
+          ${field('Success metric', s.success_metric)}
+          ${field('Technical approach', s.technical_approach)}
+          ${field('Integrations / data sources', s.integrations_data_sources)}
+          ${field('Data handled', s.data_handled)}
+          ${field('Effort estimate', s.effort_estimate)}
+          ${field('Impact / Ease / Fit', `${s.impact ?? '—'} / ${s.ease ?? '—'} / ${s.strategic_fit ?? '—'}  (score ${score}/15)`)}
+          ${field('Proposed target', s.proposed_target_date ? formatDate(s.proposed_target_date) : '')}
+          ${field('Human-in-the-loop', s.human_in_the_loop)}
+          ${field('Rollback plan', s.rollback_plan)}
+          ${field('Risk flags', (s.risk_flags || []).join(' · '))}
+          ${field('Stakeholders', s.stakeholders)}
+          ${field('Open questions', s.open_questions)}
+          ${field('Decision', dec + (s.decided_by_name ? ` — ${s.decided_by_name} · ${formatWhen(s.decided_at)}` : ''))}
+          ${field('Decision notes', s.decision_notes)}
+        </div>
+        ${isAdmin() ? `<div class="row-actions"><button data-intake-action="decide" data-id="${s.id}">Record decision</button></div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  wireCards('intake-list');
+  list.querySelectorAll('[data-intake-action="decide"]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); openIntakeDecision(b.dataset.id); }));
+}
+
+function openIntakeModal() {
+  ['i-project_name','i-proposed_owner','i-business_area','i-problem_being_solved','i-why_now_strategic_fit',
+   'i-success_metric','i-technical_approach','i-integrations_data_sources','i-data_handled','i-effort_estimate',
+   'i-proposed_target_date','i-impact','i-ease','i-strategic_fit','i-human_in_the_loop','i-rollback_plan',
+   'i-risk_flags','i-stakeholders','i-open_questions'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  document.getElementById('intake-err').style.display = 'none';
+  openModal(document.getElementById('intake-modal'));
+}
+
+async function saveIntake(e) {
+  e.preventDefault();
+  const g = id => document.getElementById(id).value.trim();
+  const num = id => { const v = document.getElementById(id).value; return v === '' ? null : Number(v); };
+  const payload = {
+    project_name:              g('i-project_name'),
+    proposed_owner:            g('i-proposed_owner') || null,
+    business_area:             g('i-business_area') || null,
+    problem_being_solved:      g('i-problem_being_solved') || null,
+    why_now_strategic_fit:     g('i-why_now_strategic_fit') || null,
+    success_metric:            g('i-success_metric') || null,
+    technical_approach:        g('i-technical_approach') || null,
+    integrations_data_sources: g('i-integrations_data_sources') || null,
+    data_handled:              g('i-data_handled') || null,
+    effort_estimate:           g('i-effort_estimate') || null,
+    human_in_the_loop:         g('i-human_in_the_loop') || null,
+    rollback_plan:             g('i-rollback_plan') || null,
+    risk_flags:                parseCSV(g('i-risk_flags')),
+    impact:                    num('i-impact'),
+    ease:                      num('i-ease'),
+    strategic_fit:             num('i-strategic_fit'),
+    proposed_target_date:      g('i-proposed_target_date') || null,
+    stakeholders:              g('i-stakeholders') || null,
+    open_questions:            g('i-open_questions') || null,
+    submitted_by:              profile.id,
+    submitted_by_name:         profile.display_name,
+  };
+  const err = document.getElementById('intake-err');
+  const res = await sb.from('ai_intake_submissions').insert(payload);
+  if (res.error) { err.textContent = res.error.message; err.style.display = 'block'; return; }
+  dismissModal(document.getElementById('intake-modal'));
+  await fetchIntake(); renderIntake();
+  showView('intake');
+}
+
+function openIntakeDecision(id) {
+  if (!isAdmin()) return;
+  intakeDecisionId = id;
+  const s = intake.find(x => x.id === id);
+  const cur = s && s.leadership_decision && s.leadership_decision !== 'pending' ? s.leadership_decision : 'approved';
+  document.getElementById('id-decision').value = cur;
+  document.getElementById('id-notes').value = s?.decision_notes || '';
+  document.getElementById('intake-decision-err').style.display = 'none';
+  openModal(document.getElementById('intake-decision-modal'));
+}
+
+async function saveIntakeDecision(e) {
+  e.preventDefault();
+  const payload = {
+    leadership_decision: document.getElementById('id-decision').value,
+    decision_notes:      document.getElementById('id-notes').value.trim() || null,
+    decided_by:          profile.id,
+    decided_by_name:     profile.display_name,
+    decided_at:          new Date().toISOString(),
+  };
+  const res = await sb.from('ai_intake_submissions').update(payload).eq('id', intakeDecisionId);
+  const err = document.getElementById('intake-decision-err');
+  if (res.error) { err.textContent = res.error.message; err.style.display = 'block'; return; }
+  dismissModal(document.getElementById('intake-decision-modal'));
+  intakeDecisionId = null;
+  await fetchIntake(); renderIntake();
+}
+
+// ---- Decisions ----
+async function fetchDecisions() {
+  const { data, error } = await sb.from('ai_decisions').select('*').order('created_at', { ascending: false });
+  if (error) { console.error(error); return; }
+  decisions = data;
+}
+
+function renderDecisions() {
+  const list = document.getElementById('decisions-list');
+  const open = decisions.filter(d => !d.resolved_at).length;
+  document.getElementById('decisions-count').textContent = `${decisions.length} total · ${open} open`;
+  setBadge('decisions-badge', open);
+
+  if (!decisions.length) {
+    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta">No decisions logged yet.</div></div></div></div>`;
+    return;
+  }
+  const sorted = [...decisions].sort((a, b) => {
+    const ar = a.resolved_at ? 1 : 0, br = b.resolved_at ? 1 : 0;
+    if (ar !== br) return ar - br;   // open first
+    return (URGENCY_RANK[a.urgency] ?? 9) - (URGENCY_RANK[b.urgency] ?? 9);
+  });
+  list.innerHTML = sorted.map(d => {
+    const resolved = !!d.resolved_at;
+    const meta = [
+      d.related_project_text,
+      d.who_decides ? 'decides: ' + d.who_decides : '',
+      resolved ? 'resolved ' + formatWhen(d.resolved_at) : '',
+    ].filter(Boolean).map(escapeHTML).join(' · ');
+    return `
+    <div class="card ${resolved ? 'resolved' : ''}" data-expandable="1">
+      <div class="card-row" tabindex="0" role="button" aria-expanded="false">
+        <div class="card-main">
+          <div class="card-title">${escapeHTML(d.decision_needed)}</div>
+          <div class="card-meta">${meta || '—'}</div>
+        </div>
+        <div class="card-side"><span class="pill pill-urgency-${escapeHTML((d.urgency || '').replace(/\s/g, ''))}">${escapeHTML(d.urgency || '')}</span></div>
+      </div>
+      <div class="card-detail">
+        <div class="grid">
+          ${field('Who decides', d.who_decides)}
+          ${field('Related project', d.related_project_text)}
+          ${field('Notes / context', d.notes_context)}
+          ${resolved ? field('Resolution', (d.resolution_notes || '') + (d.resolved_by_name ? ` — ${d.resolved_by_name}` : '')) : ''}
+        </div>
+        ${isAdmin() ? `<div class="row-actions"><button data-decision-action="edit" data-id="${d.id}">${resolved ? 'Edit' : 'Manage / resolve'}</button></div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+  wireCards('decisions-list');
+  list.querySelectorAll('[data-decision-action="edit"]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); openDecisionModal(b.dataset.id); }));
+}
+
+function openDecisionModal(id) {
+  if (!isAdmin()) return;
+  showView('decisions');
+  editingDecisionId = id;
+  const d = id ? decisions.find(x => x.id === id) : null;
+  document.getElementById('decision-title').textContent = id ? 'Edit decision' : 'Add decision';
+  document.getElementById('d-urgency').value = d?.urgency || 'Soon';
+  document.getElementById('d-who_decides').value = d?.who_decides || '';
+  document.getElementById('d-decision_needed').value = d?.decision_needed || '';
+  document.getElementById('d-related_project_text').value = d?.related_project_text || '';
+  document.getElementById('d-notes_context').value = d?.notes_context || '';
+  document.getElementById('d-resolution_notes').value = d?.resolution_notes || '';
+  document.getElementById('d-resolution-wrap').style.display = id ? 'block' : 'none';
+  document.getElementById('decision-delete').style.display = id ? 'inline-block' : 'none';
+  document.getElementById('decision-resolve').style.display = (id && d && !d.resolved_at) ? 'inline-block' : 'none';
+  document.getElementById('decision-err').style.display = 'none';
+  openModal(document.getElementById('decision-modal'));
+}
+
+async function saveDecision(resolve) {
+  const g = id => document.getElementById(id).value.trim();
+  const err = document.getElementById('decision-err');
+  if (!g('d-decision_needed')) { err.textContent = 'Decision needed is required.'; err.style.display = 'block'; return; }
+  const payload = {
+    urgency:              g('d-urgency'),
+    decision_needed:      g('d-decision_needed'),
+    who_decides:          g('d-who_decides') || null,
+    related_project_text: g('d-related_project_text') || null,
+    notes_context:        g('d-notes_context') || null,
+    resolution_notes:     g('d-resolution_notes') || null,
+  };
+  if (resolve) {
+    payload.resolved_at = new Date().toISOString();
+    payload.resolved_by = profile.id;
+    payload.resolved_by_name = profile.display_name;
+  }
+  let res;
+  if (editingDecisionId) res = await sb.from('ai_decisions').update(payload).eq('id', editingDecisionId);
+  else res = await sb.from('ai_decisions').insert(payload);
+  if (res.error) { err.textContent = res.error.message; err.style.display = 'block'; return; }
+  dismissModal(document.getElementById('decision-modal'));
+  editingDecisionId = null;
+  await fetchDecisions(); renderDecisions();
+}
+
+async function deleteDecision() {
+  if (!editingDecisionId) return;
+  if (!confirm('Delete this decision? This cannot be undone.')) return;
+  const { error } = await sb.from('ai_decisions').delete().eq('id', editingDecisionId);
+  const err = document.getElementById('decision-err');
+  if (error) { err.textContent = error.message; err.style.display = 'block'; return; }
+  dismissModal(document.getElementById('decision-modal'));
+  editingDecisionId = null;
+  await fetchDecisions(); renderDecisions();
 }
 
 // ============================================================================
