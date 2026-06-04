@@ -706,6 +706,14 @@ td.table-empty .table-empty-sub {
 .pill-OnHold     { background: var(--status-hold-bg);       color: var(--status-hold-fg); }
 .pill-Cancelled  { background: var(--status-cancelled-bg);  color: var(--status-cancelled-fg); }
 
+/* AI governance facet */
+.form-subhead { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); font-weight: 700; }
+.gov-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+.gov-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.pill-risk-Low    { background: var(--status-live-bg);   color: var(--status-live-fg); }
+.pill-risk-Medium { background: var(--status-review-bg); color: var(--status-review-fg); }
+.pill-risk-High   { background: var(--status-hold-bg);   color: var(--status-hold-fg); }
+
 /* =========================================================================
    ICONS
    ========================================================================= */

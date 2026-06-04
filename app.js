@@ -525,6 +525,15 @@ function renderTable() {
             <div><div class="field-label">Risk Flags</div><div class="field-value">${renderRiskFlags(p.risk_flags) || '—'}</div></div>
             <div><div class="field-label">Updated</div><div class="field-value">${formatWhen(p.updated_at)}</div></div>
           </div>
+          ${(p.risk_tier || p.data_handled || p.human_in_the_loop || p.rollback_plan) ? `
+          <div class="gov-block">
+            <div class="gov-head">AI governance${p.risk_tier ? ` <span class="pill pill-risk-${p.risk_tier}">${escapeHTML(p.risk_tier)} risk</span>` : ''}</div>
+            <div class="grid">
+              ${field('Data handled', p.data_handled)}
+              ${field('Human in the loop', p.human_in_the_loop)}
+              ${field('Rollback plan', p.rollback_plan)}
+            </div>
+          </div>` : ''}
           ${notesBlock}
           ${sosBlock}
           ${isAdmin() ? `
@@ -1252,6 +1261,10 @@ function openProjectModal(id) {
   fld('description',   p?.description);
   fld('success_metric',p?.success_metric);
   fld('risk_flags',    (p?.risk_flags || []).join(', '));
+  fld('risk_tier',         p?.risk_tier || '');
+  fld('data_handled',      p?.data_handled);
+  fld('human_in_the_loop', p?.human_in_the_loop);
+  fld('rollback_plan',     p?.rollback_plan);
   fld('notes',         p?.notes);
   document.getElementById('modal-err').style.display = 'none';
   openModal(document.getElementById('project-modal'));
@@ -1282,6 +1295,10 @@ async function saveProject(e) {
     description:     get('description') || null,
     success_metric:  get('success_metric') || null,
     risk_flags:      parseCSV(get('risk_flags')),
+    risk_tier:         get('risk_tier') || null,
+    data_handled:      get('data_handled') || null,
+    human_in_the_loop: get('human_in_the_loop') || null,
+    rollback_plan:     get('rollback_plan') || null,
     notes:           get('notes') || null,
     updated_by:      profile.id,
   };
@@ -1385,7 +1402,7 @@ async function saveSignoff(e) {
 // ============================================================================
 function exportCSV() {
   const rows = filterProjects();
-  const headers = ['ID','Theme','Project','Status','Owners','Progress %','Target','Priority','Impact','Ease','StratFit','Score','Deliverable URL','Success Metric','Risk Flags','Description','Notes'];
+  const headers = ['ID','Theme','Project','Status','Owners','Progress %','Target','Priority','Impact','Ease','StratFit','Score','Deliverable URL','Success Metric','Risk Flags','Description','Notes','Risk Tier','Data Handled','Human In Loop','Rollback Plan'];
   const lines = [headers.join(',')];
   rows.forEach(p => {
     const row = [
@@ -1398,6 +1415,7 @@ function exportCSV() {
       p.deliverable_url ?? '',
       p.success_metric ?? '', (p.risk_flags || []).join(' · '),
       p.description ?? '', p.notes ?? '',
+      p.risk_tier ?? '', p.data_handled ?? '', p.human_in_the_loop ?? '', p.rollback_plan ?? '',
     ];
     lines.push(row.map(v => '"' + String(v ?? '').replace(/"/g,'""') + '"').join(','));
   });

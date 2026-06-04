@@ -269,6 +269,30 @@
           <label for="f-risk_flags">Risk flags (comma-separated)</label>
           <input id="f-risk_flags" placeholder="Human Review, Data Privacy">
         </div>
+        <div class="full" style="border-top:1px solid var(--hairline); padding-top:14px; margin-top:2px">
+          <span class="form-subhead">AI governance</span>
+        </div>
+        <div>
+          <label for="f-risk_tier">Risk tier</label>
+          <select id="f-risk_tier">
+            <option value="">— Not set —</option>
+            <option value="Low">Low</option>
+            <option value="Medium">Medium</option>
+            <option value="High">High</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="f-data_handled">Data handled</label>
+          <textarea id="f-data_handled" style="min-height: 48px" placeholder="e.g. client contact data, no PII"></textarea>
+        </div>
+        <div class="full">
+          <label for="f-human_in_the_loop">Human in the loop</label>
+          <textarea id="f-human_in_the_loop" style="min-height: 48px" placeholder="Where does a person review or approve before action?"></textarea>
+        </div>
+        <div class="full">
+          <label for="f-rollback_plan">Rollback plan</label>
+          <textarea id="f-rollback_plan" style="min-height: 48px" placeholder="How do we disable or undo this if it misbehaves?"></textarea>
+        </div>
         <div class="full">
           <label for="f-notes">Notes / open questions</label>
           <textarea id="f-notes"></textarea>
