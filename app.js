@@ -281,6 +281,7 @@ async function mountApp() {
     document.getElementById('new-decision-btn').style.display = 'inline-block';
     document.getElementById('um-activity').hidden = false;
     document.getElementById('um-ask').hidden = false;
+    document.getElementById('activity-fab').hidden = false;
   } else {
     // Intake-only: hide the Projects + Decisions tabs and show a welcome.
     document.getElementById('viewer-banner').style.display = 'block';
@@ -298,6 +299,7 @@ async function mountApp() {
   renderDecisions();
   showView(admin ? currentView : 'intake');   // honor ?v= (admins) / force intake (viewers)
   subscribeRealtime();
+  if (admin) fetchActivity().then(updateActivityBadge);   // prime the corner-button badge
   // Deep link to a specific project (?p=ID)
   if (admin && urlOpenId) {
     setTimeout(() => {
@@ -612,6 +614,7 @@ function render() {
   renderKPIs();
   renderPipeline();
   renderTable();
+  updateActivityBadge();
 }
 
 // Inline status editing: click a status pill in the table to pick a new status.
@@ -1125,6 +1128,7 @@ function attachEvents() {
   const menuAction = (id, fn) => document.getElementById(id).addEventListener('click', () => { toggleUserMenu(false); fn(); });
   menuAction('um-theme', toggleTheme);
   menuAction('um-activity', openActivity);
+  document.getElementById('activity-fab').addEventListener('click', openActivity);
   menuAction('um-ask', openAsk);
   // (um-signout wired at top level)
 
@@ -1466,6 +1470,7 @@ async function fetchIntake() {
 }
 
 function renderIntake() {
+  updateActivityBadge();
   const list = document.getElementById('intake-list');
   const pending = intake.filter(s => (s.leadership_decision || 'pending') === 'pending').length;
   document.getElementById('intake-count').textContent = `${intake.length} submission${intake.length !== 1 ? 's' : ''} · ${pending} pending`;
@@ -1598,6 +1603,7 @@ async function fetchDecisions() {
 }
 
 function renderDecisions() {
+  updateActivityBadge();
   const list = document.getElementById('decisions-list');
   const open = decisions.filter(d => !d.resolved_at).length;
   document.getElementById('decisions-count').textContent = `${decisions.length} total · ${open} open`;
@@ -1703,22 +1709,84 @@ async function deleteDecision() {
 }
 
 // ============================================================================
-// ACTIVITY DRAWER (audit log across all projects)
+// ACTIVITY DRAWER — unified feed across projects, decisions, intake + sign-offs.
+// Project field edits come from ai_project_audit; everything else from the
+// timestamps already loaded in memory. Surfaced via the corner button (#activity-fab).
 // ============================================================================
+let activityAudit = [];   // last fetched ai_project_audit rows (also feeds the badge)
+
+async function fetchActivity() {
+  const { data, error } = await sb.from('ai_project_audit')
+    .select('*').order('changed_at', { ascending: false }).limit(60);
+  if (error) { console.error(error); return false; }
+  activityAudit = data || [];
+  return true;
+}
+
+// Build one reverse-chronological list of {ts, line, sub} from every source.
+function assembleActivity() {
+  const nameOf = id => escapeHTML((projects.find(x => x.id === id) || {}).project_name || 'a project');
+  const items = [];
+
+  for (const r of activityAudit) {
+    let sub = `${escapeHTML(String(r.old_value ?? '—'))} → ${escapeHTML(String(r.new_value ?? '—'))}`;
+    if (r.field_name === 'progress') {
+      const pct = v => (v == null || v === '') ? '—' : Math.round(parseFloat(v) * 100) + '%';
+      sub = `${pct(r.old_value)} → ${pct(r.new_value)}`;
+    }
+    items.push({ ts: r.changed_at,
+      line: `<strong>${escapeHTML(r.changed_by_name || 'Someone')}</strong> changed <strong>${escapeHTML(r.field_name)}</strong> on ${nameOf(r.project_id)}`,
+      sub });
+  }
+  for (const p of projects) {
+    if (p.created_at) items.push({ ts: p.created_at, line: `Added <strong>${escapeHTML(p.project_name)}</strong> to the registry` });
+  }
+  for (const d of decisions) {
+    if (d.created_at)  items.push({ ts: d.created_at,  line: `New decision raised`, sub: escapeHTML(d.decision_needed) });
+    if (d.resolved_at) items.push({ ts: d.resolved_at, line: `<strong>${escapeHTML(d.resolved_by_name || 'Someone')}</strong> resolved a decision`, sub: escapeHTML(d.decision_needed) });
+  }
+  for (const s of intake) {
+    if (s.submitted_at) items.push({ ts: s.submitted_at, line: `<strong>${escapeHTML(s.submitted_by_name || 'Someone')}</strong> submitted an idea`, sub: escapeHTML(s.project_name) });
+    if (s.decided_at && s.leadership_decision && s.leadership_decision !== 'pending')
+      items.push({ ts: s.decided_at, line: `<strong>${escapeHTML(s.decided_by_name || 'Leadership')}</strong> marked intake <strong>${escapeHTML(s.leadership_decision)}</strong>`, sub: escapeHTML(s.project_name) });
+  }
+  for (const so of signoffs) {
+    if (so.signed_at) items.push({ ts: so.signed_at,
+      line: `<strong>${escapeHTML(so.signed_by_name || 'Someone')}</strong> signed off (${escapeHTML((so.signoff_type || '').replace(/_/g, ' '))})`,
+      sub: so.project_id ? 'on ' + nameOf(so.project_id) : '' });
+  }
+
+  items.sort((a, b) => String(b.ts || '').localeCompare(String(a.ts || '')));
+  return items;
+}
+
+// Corner-button badge: count of activity in the last 24h. Cheap; called from render().
+function updateActivityBadge() {
+  const badge = document.getElementById('activity-fab-badge');
+  if (!badge) return;
+  const cutoff = Date.now() - 24 * 3600 * 1000;
+  const n = assembleActivity().filter(it => {
+    const t = Date.parse(it.ts);
+    return !isNaN(t) && t >= cutoff;
+  }).length;
+  badge.textContent = n > 9 ? '9+' : String(n);
+  badge.hidden = n === 0;
+}
+
 async function openActivity() {
   const d = document.getElementById('activity-drawer');
   d.hidden = false;
   document.body.style.overflow = 'hidden';
   const list = document.getElementById('activity-list');
   list.innerHTML = '<div class="act-empty">Loading…</div>';
-  const { data, error } = await sb.from('ai_project_audit').select('*').order('changed_at', { ascending: false }).limit(60);
-  if (error) { list.innerHTML = '<div class="act-empty">Couldn\'t load activity.</div>'; return; }
-  if (!data.length) { list.innerHTML = '<div class="act-empty">No recent changes.</div>'; return; }
-  const nameOf = id => { const p = projects.find(x => x.id === id); return p ? p.project_name : 'a project'; };
-  list.innerHTML = data.map(r => `<div class="act-item">
-    <div class="act-line"><strong>${escapeHTML(r.changed_by_name || 'Someone')}</strong> changed <strong>${escapeHTML(r.field_name)}</strong> on ${escapeHTML(nameOf(r.project_id))}</div>
-    <div class="act-sub">${escapeHTML(String(r.old_value ?? '—'))} → ${escapeHTML(String(r.new_value ?? '—'))}</div>
-    <div class="act-when">${formatWhen(r.changed_at)}</div>
+  await fetchActivity();
+  updateActivityBadge();
+  const items = assembleActivity().slice(0, 80);
+  if (!items.length) { list.innerHTML = '<div class="act-empty">No recent activity.</div>'; return; }
+  list.innerHTML = items.map(it => `<div class="act-item">
+    <div class="act-line">${it.line}</div>
+    ${it.sub ? `<div class="act-sub">${it.sub}</div>` : ''}
+    <div class="act-when">${escapeHTML(formatWhen(it.ts))}</div>
   </div>`).join('');
 }
 function closeActivity() {
