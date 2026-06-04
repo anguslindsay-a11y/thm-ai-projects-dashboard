@@ -135,6 +135,32 @@ function formatWhen(ts) {
   const d = new Date(ts);
   return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
 }
+// --- Portfolio-depth helpers (health / dependencies / review cadence) ---
+function healthClass(h) { return 'pill pill-health-' + (h || '').replace(/\s/g, ''); }
+// Projects this one depends on that aren't done/dropped = active blockers.
+function blockersFor(p) {
+  if (!p.depends_on || !p.depends_on.length) return [];
+  return p.depends_on
+    .map(id => projects.find(x => x.id === id))
+    .filter(d => d && d.status !== 'Live' && d.status !== 'Cancelled');
+}
+// Render a project's dependencies as chips (open blockers highlighted).
+function depNames(p) {
+  if (!p.depends_on || !p.depends_on.length) return '';
+  return p.depends_on.map(id => {
+    const d = projects.find(x => x.id === id);
+    if (!d) return '';
+    const open = d.status !== 'Live' && d.status !== 'Cancelled';
+    return `<span class="dep ${open ? 'dep-open' : 'dep-done'}">${escapeHTML(d.project_name)}</span>`;
+  }).filter(Boolean).join(' ');
+}
+// "Review due" = active project reviewed once but not in 30+ days (never-reviewed
+// stays quiet so the whole list doesn't light up before the cadence starts).
+function reviewDue(p) {
+  if (p.status === 'Live' || p.status === 'Cancelled' || !p.last_reviewed_at) return false;
+  return (Date.now() - new Date(p.last_reviewed_at).getTime()) > 30 * 86400000;
+}
+
 function renderRiskFlags(arr) {
   if (!arr || !arr.length) return '';
   return arr.map(flag => {
@@ -497,11 +523,12 @@ function renderTable() {
     const rowMarkers =
       (p.deliverable_url ? ` <span class="row-marker deliv" title="${escapeHTML(deliverableLabel(p.deliverable_url))}">↗</span>` : '') +
       (sos.length ? ` <span class="row-marker signed" title="Signed off (${sos.length})">✓</span>` : '') +
-      (isStale(p) ? ` <span class="row-marker stale" title="No updates in 30+ days">💤</span>` : '');
+      (isStale(p) ? ` <span class="row-marker stale" title="No updates in 30+ days">💤</span>` : '') +
+      (blockersFor(p).length ? ` <span class="row-marker blocked" title="Blocked by ${blockersFor(p).length} unfinished dependency">⛔</span>` : '');
     return `
       <tr data-id="${p.id}" class="main-row" tabindex="0" aria-expanded="false">
         <td class="project-name" style="box-shadow: inset 3px 0 0 ${themeColor(p.theme)}">
-          <div class="project-line"><span class="caret" aria-hidden="true">›</span>${escapeHTML(p.project_name)}${rowMarkers}</div>
+          <div class="project-line"><span class="caret" aria-hidden="true">›</span>${p.health ? `<span class="health-dot health-${p.health.replace(/\s/g, '')}" title="${escapeHTML(p.health)}"></span>` : ''}${escapeHTML(p.project_name)}${rowMarkers}</div>
           ${p.theme ? `<div class="project-theme" style="color:${themeColor(p.theme)}">${escapeHTML(p.theme)}</div>` : ''}
         </td>
         <td class="status-cell"${isAdmin() ? ' title="Click to change status"' : ''}>${statusPill(p.status)}</td>
@@ -524,6 +551,9 @@ function renderTable() {
             <div><div class="field-label">Success Metric</div><div class="field-value">${escapeHTML(p.success_metric || '—')}</div></div>
             <div><div class="field-label">Risk Flags</div><div class="field-value">${renderRiskFlags(p.risk_flags) || '—'}</div></div>
             <div><div class="field-label">Updated</div><div class="field-value">${formatWhen(p.updated_at)}</div></div>
+            <div><div class="field-label">Health</div><div class="field-value">${p.health ? `<span class="${healthClass(p.health)}">${escapeHTML(p.health)}</span>` : '—'}</div></div>
+            <div><div class="field-label">Depends on</div><div class="field-value">${depNames(p) || '—'}</div></div>
+            <div><div class="field-label">Last reviewed</div><div class="field-value">${p.last_reviewed_at ? formatWhen(p.last_reviewed_at) + (reviewDue(p) ? ` <span class="review-due">· review due</span>` : '') : 'Not yet reviewed'}</div></div>
           </div>
           ${notesBlock}
           ${sosBlock}
@@ -531,6 +561,7 @@ function renderTable() {
             <div class="row-actions">
               <button data-action="edit"    data-id="${p.id}">Edit</button>
               <button data-action="signoff" data-id="${p.id}" class="secondary">Sign off</button>
+              <button data-action="review"  data-id="${p.id}" class="secondary">Mark reviewed</button>
               <button data-action="history" data-id="${p.id}" class="secondary">View history</button>
             </div>` : `
             <div class="row-actions">
@@ -579,9 +610,22 @@ function renderTable() {
       const action = btn.dataset.action;
       if (action === 'edit')    openProjectModal(id);
       if (action === 'signoff') openSignoffModal(id);
+      if (action === 'review')  markReviewed(id);
       if (action === 'history') toggleHistory(id);
     });
   });
+}
+
+async function markReviewed(id) {
+  if (!isAdmin()) return;
+  const p = projects.find(x => x.id === id);
+  if (!p) return;
+  const ts = new Date().toISOString();
+  p.last_reviewed_at = ts;   // optimistic
+  render();
+  const { error } = await sb.from('ai_projects').update({ last_reviewed_at: ts }).eq('id', id);
+  if (error) showToast("Couldn't mark reviewed: " + error.message, 'err');
+  else showToast('Marked reviewed');
 }
 
 async function toggleHistory(pid) {
@@ -900,11 +944,13 @@ function renderInsights() {
   const unowned = projects.filter(p => (!p.owners || !p.owners.length) && !dead(p.status));
   const inFlight = active.filter(p => !live(p.status));
   const avg = inFlight.length ? Math.round(inFlight.reduce((s, p) => s + (p.progress || 0), 0) / inFlight.length * 100) : 0;
+  const atRisk = active.filter(p => p.health === 'At Risk' || p.health === 'Off Track').length;
 
   const stats = [
     { n: active.length,    label: 'Active',                tone: 'total' },
     { n: launching.length, label: 'Launching this month',  tone: 'progress' },
     { n: attention.length, label: 'Needs attention',       tone: 'attn',  alert: attention.length > 0 },
+    { n: atRisk,           label: 'At risk / off track',   tone: 'attn',  alert: atRisk > 0 },
     { n: unowned.length,   label: 'Unowned',               tone: 'queue', alert: unowned.length > 0 },
     { n: avg + '%',        label: 'Avg progress',          tone: 'live' },
   ];
@@ -921,6 +967,33 @@ function renderInsights() {
         `<div class="bar-row"><span class="bar-label">${escapeHTML(t)}</span><span class="bar-track"><span class="bar-fill" style="width:${(n / max * 100).toFixed(0)}%;background:${themeColor(t)}"></span></span><span class="bar-count">${n}</span></div>`
       ).join('')
     : '<div class="act-empty">No projects yet.</div>';
+
+  renderRoadmap();
+}
+
+// Roadmap — projects grouped by the quarter of their target date. Pure DOM, no lib.
+function renderRoadmap() {
+  const el = document.getElementById('roadmap');
+  if (!el) return;
+  const dead = s => s === 'Cancelled';
+  const dated = projects.filter(p => p.target_date && !dead(p.status));
+  const unscheduled = projects.filter(p => !p.target_date && !dead(p.status) && p.status !== 'Live').length;
+  const unschedNote = unscheduled
+    ? `<div class="road-unscheduled">+ ${unscheduled} active project${unscheduled !== 1 ? 's' : ''} with no target date</div>` : '';
+  if (!dated.length) {
+    el.innerHTML = `<div class="act-empty">No target dates set yet.</div>${unschedNote}`;
+    return;
+  }
+  const quarter = d => { const dt = new Date(d + 'T12:00:00'); return dt.getFullYear() + ' Q' + (Math.floor(dt.getMonth() / 3) + 1); };
+  const groups = {};
+  dated.forEach(p => { const k = quarter(p.target_date); (groups[k] = groups[k] || []).push(p); });
+  el.innerHTML = Object.keys(groups).sort().map(k => `
+    <div class="road-row">
+      <div class="road-q">${escapeHTML(k)}</div>
+      <div class="road-items">${groups[k]
+        .slice().sort((a, b) => a.target_date.localeCompare(b.target_date))
+        .map(p => `<span class="road-item${isOverdue(p) ? ' overdue' : ''}${p.status === 'Live' ? ' live' : ''}" title="${escapeHTML(p.project_name)} · ${formatDate(p.target_date)}${p.status === 'Live' ? ' · Live' : (isOverdue(p) ? ' · overdue' : '')}">${escapeHTML(p.project_name)}</span>`).join('')}</div>
+    </div>`).join('') + unschedNote;
 }
 
 // Slim stacked status bar under the KPIs — shows the whole pipeline at a glance.
@@ -1252,6 +1325,14 @@ function openProjectModal(id) {
   fld('description',   p?.description);
   fld('success_metric',p?.success_metric);
   fld('risk_flags',    (p?.risk_flags || []).join(', '));
+  fld('health',        p?.health || '');
+  // Populate the depends-on picker with every other project; select current deps.
+  const cur = new Set(p?.depends_on || []);
+  document.getElementById('f-depends_on').innerHTML = projects
+    .filter(x => x.id !== id)
+    .slice().sort((a, b) => a.project_name.localeCompare(b.project_name))
+    .map(x => `<option value="${x.id}"${cur.has(x.id) ? ' selected' : ''}>${escapeHTML(x.project_name)}</option>`)
+    .join('');
   fld('notes',         p?.notes);
   document.getElementById('modal-err').style.display = 'none';
   openModal(document.getElementById('project-modal'));
@@ -1266,6 +1347,7 @@ async function saveProject(e) {
   e.preventDefault();
   const get = id => document.getElementById('f-' + id).value.trim();
   const num = v => v === '' ? null : Number(v);
+  const depends_on = [...document.getElementById('f-depends_on').selectedOptions].map(o => o.value);
 
   const payload = {
     project_name:    get('project_name'),
@@ -1282,6 +1364,8 @@ async function saveProject(e) {
     description:     get('description') || null,
     success_metric:  get('success_metric') || null,
     risk_flags:      parseCSV(get('risk_flags')),
+    health:          get('health') || null,
+    depends_on:      depends_on,
     notes:           get('notes') || null,
     updated_by:      profile.id,
   };

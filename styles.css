@@ -706,6 +706,32 @@ td.table-empty .table-empty-sub {
 .pill-OnHold     { background: var(--status-hold-bg);       color: var(--status-hold-fg); }
 .pill-Cancelled  { background: var(--status-cancelled-bg);  color: var(--status-cancelled-fg); }
 
+/* RAG health */
+.pill-health-OnTrack  { background: var(--status-live-bg);   color: var(--status-live-fg); }
+.pill-health-AtRisk   { background: var(--status-review-bg); color: var(--status-review-fg); }
+.pill-health-OffTrack { background: var(--status-hold-bg);   color: var(--status-hold-fg); }
+.health-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: middle; flex: 0 0 auto; }
+.health-OnTrack  { background: var(--status-live-fg); }
+.health-AtRisk   { background: var(--status-review-fg); }
+.health-OffTrack { background: var(--status-hold-fg); }
+.row-marker.blocked { color: #b3261e; }
+.review-due { color: var(--status-hold-fg); font-weight: 600; }
+
+/* Dependency chips */
+.dep { display: inline-block; padding: 1px 8px; border-radius: var(--radius-pill); font-size: 12px; margin: 0 4px 4px 0; }
+.dep-open { background: var(--status-hold-bg); color: var(--status-hold-fg); }
+.dep-done { background: var(--status-cancelled-bg); color: var(--status-cancelled-fg); }
+
+/* Roadmap by quarter */
+.roadmap { display: flex; flex-direction: column; gap: 12px; }
+.road-row { display: grid; grid-template-columns: 72px 1fr; gap: 12px; align-items: start; }
+.road-q { font-family: var(--font-sub); font-weight: 700; font-size: 12px; color: var(--fg-muted); padding-top: 3px; }
+.road-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.road-item { display: inline-block; padding: 3px 9px; border-radius: var(--radius-pill); font-size: 12px; background: var(--bg-panel); border: 1px solid var(--hairline); color: var(--fg-body); }
+.road-item.overdue { border-color: #b3261e; color: #b3261e; }
+.road-item.live { background: var(--status-live-bg); border-color: transparent; color: var(--status-live-fg); }
+.road-unscheduled { margin-top: 10px; font-size: 12px; color: var(--fg-muted); }
+
 /* =========================================================================
    ICONS
    ========================================================================= */
