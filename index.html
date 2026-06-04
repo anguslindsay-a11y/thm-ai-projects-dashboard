@@ -176,6 +176,10 @@
         <h3>Projects by theme</h3>
         <div id="theme-bars" class="bar-list"></div>
       </div>
+      <div class="chart-card" style="margin-top:18px; max-width:720px">
+        <h3>Roadmap by quarter</h3>
+        <div id="roadmap" class="roadmap"></div>
+      </div>
     </div><!-- /view-insights -->
   </main>
 
@@ -252,6 +256,19 @@
             <option value="Medium">Medium</option>
             <option value="Low">Low</option>
           </select>
+        </div>
+        <div>
+          <label for="f-health">Health</label>
+          <select id="f-health">
+            <option value="">— Not set —</option>
+            <option value="On Track">On Track</option>
+            <option value="At Risk">At Risk</option>
+            <option value="Off Track">Off Track</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="f-depends_on">Depends on <span style="color:var(--fg-faint); font-weight:500; text-transform:none; letter-spacing:0; font-family:var(--font-body)">(other projects this one is blocked by — hold ⌘/Ctrl to multi-select)</span></label>
+          <select id="f-depends_on" multiple size="4"></select>
         </div>
         <div class="full">
           <label for="f-deliverable_url">Deliverable <span style="color:var(--fg-faint); font-weight:500; text-transform:none; letter-spacing:0; font-family:var(--font-body)">(link or file path — live project, doc, OneDrive/SharePoint, or Excel)</span></label>
