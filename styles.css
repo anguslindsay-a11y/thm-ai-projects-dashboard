@@ -52,7 +52,8 @@
 
   --font-headline: 'Poppins', system-ui, -apple-system, sans-serif;
   --font-body:     'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-sub:      'Oswald', 'Poppins', sans-serif;
+  /* Small uppercase labels — Poppins 600 with the usual letter-spacing (Oswald retired) */
+  --font-sub:      'Poppins', system-ui, -apple-system, sans-serif;
 }
 
 :root[data-theme="dark"] {
@@ -364,6 +365,44 @@ main {
 .login-msg.ok  { background: var(--ok-bg);     color: var(--ok-fg); }
 .login-msg.err { background: var(--danger-bg); color: var(--danger-fg); }
 
+/* "First time here?" disclosure — keeps the starter password off the first paint */
+.login-first-time { margin-top: 14px; text-align: center; }
+.login-first-time summary {
+  display: inline-block;
+  cursor: pointer;
+  list-style: none;
+  color: var(--indigo);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+}
+.login-first-time summary::-webkit-details-marker { display: none; }
+.login-first-time summary:hover { color: var(--indigo-deep); }
+.login-first-time summary:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; border-radius: 4px; }
+.login-first-time .lft-body {
+  margin-top: 12px;
+  padding: 14px 16px;
+  text-align: left;
+  background: var(--timber-soft);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  color: var(--fg-muted);
+  line-height: 1.55;
+}
+.login-first-time .lft-body p { margin: 0 0 8px; }
+.login-first-time .lft-body p:last-child { margin-bottom: 0; }
+.login-first-time .lft-pw {
+  display: inline-block;
+  background: var(--bg-surface);
+  color: var(--fg-strong);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  padding: 3px 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
 /* =========================================================================
    KPI CARDS
    ========================================================================= */
@@ -614,13 +653,6 @@ td.project-name .project-theme {
   opacity: 0.78;
 }
 td.priority-cell { white-space: nowrap; }
-.priority-score {
-  font-size: 11px;
-  color: var(--fg-muted);
-  font-variant-numeric: tabular-nums;
-  font-weight: 600;
-  margin-top: 4px;
-}
 .owners { display: flex; align-items: center; gap: 8px; }
 .avatar {
   width: 24px; height: 24px;
@@ -737,6 +769,13 @@ td.table-empty .table-empty-sub {
 .health-OnTrack  { background: var(--status-live-fg); }
 .health-AtRisk   { background: var(--status-review-fg); }
 .health-OffTrack { background: var(--status-hold-fg); }
+/* Health as the loudest row signal — 3px edge down the row's left side.
+   Classes come from the fixed HEALTH_EDGE_CLASS map in app.js; the --status-*-fg
+   vars adapt in dark mode. Transparent default keeps cell alignment stable. */
+tbody tr.main-row > td:first-child { border-left: 3px solid transparent; }
+tbody tr.health-edge-OnTrack  > td:first-child { border-left-color: var(--status-live-fg); }
+tbody tr.health-edge-AtRisk   > td:first-child { border-left-color: var(--status-review-fg); }
+tbody tr.health-edge-OffTrack > td:first-child { border-left-color: var(--status-hold-fg); }
 .row-marker.blocked { color: #b3261e; }
 .review-due { color: var(--status-hold-fg); font-weight: 600; }
 
@@ -880,7 +919,7 @@ td.table-empty .table-empty-sub {
 .cmdk-item .cmdk-label { font-weight: 600; color: var(--fg-strong); flex: 1 1 auto; }
 .cmdk-item .cmdk-sub {
   font-size: 11px; color: var(--fg-faint); text-transform: uppercase;
-  letter-spacing: 0.06em; font-family: var(--font-sub); flex: none;
+  letter-spacing: 0.06em; font-family: var(--font-sub); font-weight: 600; flex: none;
 }
 .cmdk-empty { padding: 24px; text-align: center; color: var(--fg-faint); font-size: 13px; }
 .cmdk-hint {
@@ -1603,6 +1642,22 @@ footer::before {
 .pill-priority-Low    { background: var(--bg-panel);  color: var(--fg-muted); border: 1px solid var(--hairline); }
 
 /* =========================================================================
+   SIGN-OFF BADGES (status cell + sign-offs block)
+   ========================================================================= */
+.pill-signed { background: var(--ok-bg); color: var(--ok-fg); margin-left: 6px; cursor: help; }
+.pill-signed::before { display: none; }   /* the ✓ replaces the status dot */
+.pill-needs-signoff {
+  background: transparent;
+  color: var(--fg-faint);
+  border: 1px dashed var(--fg-faint);
+  font-weight: 500;
+  margin-left: 6px;
+  cursor: help;
+}
+.pill-needs-signoff::before { display: none; }
+.signoffs .pill-signed, .signoffs .pill-needs-signoff { margin: 0 6px 4px 0; }
+
+/* =========================================================================
    DELIVERABLE LINK (in expandable row)
    ========================================================================= */
 .deliverable-link {
@@ -1852,6 +1907,110 @@ button.deliverable-copy::before { content: "⧉"; }
 .card.resolved .card-title { text-decoration: line-through; }
 
 /* =========================================================================
+   INTAKE WELCOME (renders only when there are zero submissions)
+   ========================================================================= */
+.intake-welcome {
+  background: var(--bg-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-1);
+  padding: 28px 28px 26px;
+}
+.intake-welcome h3 { font-size: 18px; font-weight: 700; margin: 0 0 8px; }
+.intake-welcome .iw-sub { color: var(--fg-muted); font-size: 13.5px; margin: 0 0 20px; max-width: 640px; }
+.iw-steps { display: flex; gap: 12px; margin-bottom: 20px; }
+.iw-step {
+  flex: 1 1 0;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--bg-panel);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  font-size: 13px;
+  color: var(--fg-body);
+  line-height: 1.45;
+}
+.iw-num {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--indigo);
+  color: #fff;
+  font-family: var(--font-headline);
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.iw-example {
+  position: relative;
+  background: var(--bg-panel);
+  border: 1.5px dashed var(--cadet);
+  border-radius: var(--radius-md);
+  padding: 18px 18px 14px;
+  margin-bottom: 22px;
+  color: var(--fg-muted);
+}
+.iw-example-tag {
+  position: absolute;
+  top: -9px;
+  left: 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-pill);
+  font-family: var(--font-sub);
+  font-size: 9.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--fg-muted);
+  padding: 1px 8px;
+}
+.iw-ex-name { font-weight: 700; color: var(--fg-body); font-size: 13.5px; margin-bottom: 6px; }
+.iw-ex-row { font-size: 12.5px; margin-top: 3px; }
+.iw-ex-row span {
+  font-family: var(--font-sub);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-weight: 600;
+  color: var(--fg-faint);
+  margin-right: 6px;
+}
+/* Same treatment as the view-head CTA so the panel button reads as the action */
+.intake-welcome .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--indigo);
+  color: #fff;
+  border: 1px solid var(--indigo);
+  padding: 11px 22px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  min-height: 42px;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur) var(--ease), background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.intake-welcome .btn .ic { margin-right: 0; }
+.intake-welcome .btn:hover {
+  background: var(--indigo-deep);
+  border-color: var(--indigo-deep);
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
+}
+.intake-welcome .btn:active { transform: translateY(0); box-shadow: var(--shadow-1); }
+.intake-welcome .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* =========================================================================
    RESPONSIVE — tablets / phones
    Desktop is the default above; these layer down. Two breakpoints:
    820px (tablet + large phones) and 560px (phones).
@@ -1910,6 +2069,11 @@ button.deliverable-copy::before { content: "⧉"; }
 
   /* Insights stats two-up */
   .stat-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* Intake welcome steps stack on phones */
+  .iw-steps { flex-direction: column; }
+  .intake-welcome { padding: 20px 18px; }
+  .intake-welcome .btn { width: 100%; justify-content: center; }
 
   /* Modals fill the screen width for thumb reach */
   .modal-backdrop { padding: 0; }

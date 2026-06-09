@@ -30,7 +30,7 @@ let openHistoryIds = new Set(); // project ids with the history panel open
 
 let filterState = {
   search: '', theme: '', status: '', owner: '', priority: '', preset: '', mine: false,
-  sortBy: 'score', sortDir: 'desc',
+  sortBy: 'priority', sortDir: 'asc',
 };
 
 // ============================================================================
@@ -162,6 +162,13 @@ function formatWhen(ts) {
 }
 // --- Portfolio-depth helpers (health / dependencies / review cadence) ---
 function healthClass(h) { return 'pill pill-health-' + (h || '').replace(/\s/g, ''); }
+// Health → row edge class. Fixed map so an unexpected value can never reach the
+// class attribute; unknown/null health renders no class (transparent edge).
+const HEALTH_EDGE_CLASS = {
+  'On Track': 'health-edge-OnTrack',
+  'At Risk':  'health-edge-AtRisk',
+  'Off Track':'health-edge-OffTrack',
+};
 // Projects this one depends on that aren't done/dropped = active blockers.
 function blockersFor(p) {
   if (!p.depends_on || !p.depends_on.length) return [];
@@ -549,8 +556,10 @@ function filterProjects() {
   }).sort((a, b) => {
     const dir = filterState.sortDir === 'desc' ? -1 : 1;
     if (filterState.sortBy === 'priority') {
-      const rank = { 'High': 3, 'Medium': 2, 'Low': 1 };
-      return ((rank[a.priority] || 0) - (rank[b.priority] || 0)) * dir;
+      // Rank High → Medium → Low → unset (asc), ties broken by score (highest first).
+      const rank = { 'High': 0, 'Medium': 1, 'Low': 2 };
+      const ra = rank[a.priority] ?? 3, rb = rank[b.priority] ?? 3;
+      return ((ra - rb) || ((b.score ?? -1) - (a.score ?? -1))) * dir;
     }
     let av = a[filterState.sortBy], bv = b[filterState.sortBy];
     if (Array.isArray(av)) av = av.join(',');
@@ -631,12 +640,15 @@ function renderTable() {
     const ownerTxt = ownerAvatars(p.owners);
     const pct = Math.round((p.progress || 0) * 100);
     const sos = signoffsFor(p.id);
+    // Ship sign-offs drive the row badge; Live without one gets a gentle nudge.
+    const shipSos = sos.filter(s => s.signoff_type === 'project_ship');
+    const shipBadge = shipSos.length
+      ? `<span class="pill pill-signed" title="${escapeHTML('Signed off: ' + shipSos.map(s => `${s.signed_by_name} · ${formatWhen(s.signed_at)}`).join(', '))}">✓ Signed</span>`
+      : (p.status === 'Live' ? `<span class="pill pill-needs-signoff" title="Live without a recorded ship sign-off">needs sign-off</span>` : '');
     const sosBlock = sos.length
-      ? `<div class="signoffs">${sos.map(s => `<span class="signoff">✓ ${escapeHTML(s.signed_by_name)} (${escapeHTML(s.role)}) · ${formatWhen(s.signed_at)}</span>`).join('')}</div>`
+      ? `<div class="signoffs">${shipBadge}${sos.map(s => `<span class="signoff">✓ ${escapeHTML(s.signed_by_name)} (${escapeHTML(s.role)}) · ${formatWhen(s.signed_at)}</span>`).join('')}</div>`
       : '';
-    const priorityCell =
-      priorityPill(p.priority) +
-      `<div class="priority-score" title="Priority score = Impact + Ease + Strategic Fit, each rated 1–5">${p.score == null ? '—' : p.score + '/15'}</div>`;
+    const priorityCell = priorityPill(p.priority) || '<span style="color:var(--fg-faint)">—</span>';
     const dHref = deliverableHref(p.deliverable_url);
     const deliverableBlock = !p.deliverable_url ? ''
       // file:// links are silently blocked on an https page — offer copy-path instead
@@ -657,12 +669,12 @@ function renderTable() {
       (isStale(p) ? ` <span class="row-marker stale" title="No updates in 30+ days">💤</span>` : '') +
       (blockersFor(p).length ? ` <span class="row-marker blocked" title="Blocked by ${blockersFor(p).length} unfinished dependency">⛔</span>` : '');
     return `
-      <tr data-id="${p.id}" class="main-row" tabindex="0" aria-expanded="false">
+      <tr data-id="${p.id}" class="main-row${HEALTH_EDGE_CLASS[p.health] ? ' ' + HEALTH_EDGE_CLASS[p.health] : ''}" tabindex="0" aria-expanded="false">
         <td class="project-name" style="box-shadow: inset 3px 0 0 ${themeColor(p.theme)}">
           <div class="project-line"><span class="caret" aria-hidden="true">›</span>${p.health ? `<span class="health-dot health-${p.health.replace(/\s/g, '')}" title="${escapeHTML(p.health)}"></span>` : ''}${escapeHTML(p.project_name)}${rowMarkers}</div>
           ${p.theme ? `<div class="project-theme" style="color:${themeColor(p.theme)}">${escapeHTML(p.theme)}</div>` : ''}
         </td>
-        <td class="status-cell"${isAdmin() ? ' title="Click to change status"' : ''}>${statusPill(p.status)}</td>
+        <td class="status-cell"${isAdmin() ? ' title="Click to change status"' : ''}>${statusPill(p.status)}${shipBadge}</td>
         <td class="owner-cell"${isAdmin() ? ' title="Click to set owners"' : ''}>${ownerTxt}</td>
         <td class="progress-cell"${isAdmin() ? ' title="Click to set progress"' : ''}>
           <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
@@ -677,6 +689,7 @@ function renderTable() {
           ${deliverableBlock}
           <div class="grid">
             <div><div class="field-label">Priority</div><div class="field-value">${priorityPill(p.priority) || '—'}</div></div>
+            <div><div class="field-label">Score (impact+ease+fit)</div><div class="field-value" title="Impact + Ease + Strategic Fit, each rated 1–5">${p.score == null ? '—' : p.score}/15</div></div>
             <div><div class="field-label">Owner</div><div class="field-value">${(p.owners && p.owners.length) ? escapeHTML(p.owners.join(', ')) : '—'}</div></div>
             <div><div class="field-label">Target</div><div class="field-value">${p.target_date ? formatDate(p.target_date) : '—'}</div></div>
             <div><div class="field-label">Success Metric</div><div class="field-value">${escapeHTML(p.success_metric || '—')}</div></div>
@@ -1328,10 +1341,11 @@ function loadFilters() {
     const s = JSON.parse(localStorage.getItem(FILTER_KEY) || 'null');
     if (s && typeof s === 'object') filterState = { ...filterState, ...s };
   } catch (_) {}
-  // Clear gracefully if stored values reference options that no longer exist.
-  const sortable = ['project_name', 'status', 'owners', 'progress', 'target_date', 'score', 'priority'];
-  if (!sortable.includes(filterState.sortBy)) { filterState.sortBy = 'score'; filterState.sortDir = 'desc'; }
-  if (!['asc', 'desc'].includes(filterState.sortDir)) filterState.sortDir = 'desc';
+  // Clear gracefully if stored values reference options that no longer exist
+  // (incl. the retired 'score' column sort — Priority sorting covers it now).
+  const sortable = ['project_name', 'status', 'owners', 'progress', 'target_date', 'priority'];
+  if (!sortable.includes(filterState.sortBy)) { filterState.sortBy = 'priority'; filterState.sortDir = 'asc'; }
+  if (!['asc', 'desc'].includes(filterState.sortDir)) filterState.sortDir = 'asc';
   if (!['', 'live', 'inprogress', 'queued', 'attention', 'stale'].includes(filterState.preset)) filterState.preset = '';
 }
 
@@ -1367,7 +1381,7 @@ function updateSortIndicators() {
 }
 function applySort(key) {
   if (filterState.sortBy === key) filterState.sortDir = filterState.sortDir === 'asc' ? 'desc' : 'asc';
-  else { filterState.sortBy = key; filterState.sortDir = ['progress', 'score'].includes(key) ? 'desc' : 'asc'; }
+  else { filterState.sortBy = key; filterState.sortDir = key === 'progress' ? 'desc' : 'asc'; }
   updateSortIndicators();
   saveFilters();
   renderTable();
@@ -1409,7 +1423,7 @@ function attachEvents() {
   document.getElementById('owner-filter').addEventListener('change', e => setFilter('owner', e.target.value));
   document.getElementById('priority-filter').addEventListener('change', e => setFilter('priority', e.target.value));
   document.getElementById('reset-filters').addEventListener('click', () => {
-    filterState = { search: '', theme: '', status: '', owner: '', priority: '', preset: '', mine: false, sortBy: 'score', sortDir: 'desc' };
+    filterState = { search: '', theme: '', status: '', owner: '', priority: '', preset: '', mine: false, sortBy: 'priority', sortDir: 'asc' };
     document.getElementById('search').value = '';
     ['theme','status','owner','priority'].forEach(k => document.getElementById(k + '-filter').value = '');
     document.querySelectorAll('.vt-btn, #mine-toggle, #stale-toggle').forEach(b => b.classList && b.classList.remove('active'));
@@ -1438,7 +1452,7 @@ function attachEvents() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); applySort(th.dataset.sort); }
     });
   });
-  updateSortIndicators();   // show the default (score ▼) indicator on load
+  updateSortIndicators();   // show the default (Priority ▲) indicator on load
   document.getElementById('modal-cancel').addEventListener('click', closeProjectModal);
   document.getElementById('modal-delete').addEventListener('click', deleteProject);
   document.getElementById('project-form').addEventListener('submit', saveProject);
@@ -1993,8 +2007,31 @@ function renderIntake() {
     (filtered ? `${shown.length} of ` : '') + `${intake.length} submission${intake.length !== 1 ? 's' : ''} · ${pending} pending`;
 
   if (!shown.length) {
-    const msg = intake.length ? 'No submissions match the current filters.' : 'No submissions yet. Anyone can submit an idea with the button above.';
-    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta">${msg}</div></div></div></div>`;
+    // Zero submissions ever → first-visit welcome (viewers land on this tab).
+    // All content here is static — no user data is interpolated.
+    if (!intake.length) {
+      list.innerHTML = `
+        <div class="intake-welcome">
+          <h3>Got an idea that AI or automation could help with?</h3>
+          <p class="iw-sub">A good submission is just a real problem and how you'd measure success — no technical detail needed.</p>
+          <div class="iw-steps">
+            <div class="iw-step"><span class="iw-num">1</span><span>You submit the idea</span></div>
+            <div class="iw-step"><span class="iw-num">2</span><span>Masen, Angus &amp; leadership review it</span></div>
+            <div class="iw-step"><span class="iw-num">3</span><span>You hear back either way</span></div>
+          </div>
+          <div class="iw-example" aria-label="Example submission">
+            <span class="iw-example-tag">Example</span>
+            <div class="iw-ex-name">Auto-summarize CallRail voicemails</div>
+            <div class="iw-ex-row"><span>Problem</span>Reps spend ~30 min/day listening to voicemails</div>
+            <div class="iw-ex-row"><span>Success metric</span>Voicemail review time per rep per day</div>
+          </div>
+          <button type="button" class="btn" id="welcome-intake-btn">${ic('plus')}Submit a project idea</button>
+        </div>`;
+      const wbtn = document.getElementById('welcome-intake-btn');
+      if (wbtn) wbtn.addEventListener('click', openIntakeModal);
+      return;
+    }
+    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta">No submissions match the current filters.</div></div></div></div>`;
     return;
   }
   list.innerHTML = shown.map(s => {
