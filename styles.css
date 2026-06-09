@@ -1610,6 +1610,66 @@ footer::before {
 .view-title { font-size: 20px; font-weight: 700; }
 .view-sub { color: var(--fg-muted); font-size: 13.5px; margin: 4px 0 0; max-width: 640px; }
 
+/* View-head action buttons (Intake "Submit a project idea", Decisions "Add decision") */
+.view-head .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--indigo);
+  color: #fff;
+  border: 1px solid var(--indigo);
+  padding: 11px 20px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  min-height: 42px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur) var(--ease), background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.view-head .btn .ic { margin-right: 0; }
+.view-head .btn:hover {
+  background: var(--indigo-deep);
+  border-color: var(--indigo-deep);
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
+}
+.view-head .btn:active { transform: translateY(0); box-shadow: var(--shadow-1); }
+.view-head .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Primary CTA — the Intake "Submit a project idea" button gets extra presence */
+#new-intake-btn {
+  position: relative;
+  background-image: linear-gradient(115deg, var(--indigo-soft) 0%, var(--indigo) 45%, var(--indigo-deep) 100%);
+  background-size: 200% 100%;
+  background-position: 0% 50%;
+  border-color: var(--indigo-deep);
+  padding: 13px 26px;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow:
+    0 6px 18px rgba(34, 58, 92, 0.30),
+    var(--shadow-1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+              background-position 420ms var(--ease);
+}
+#new-intake-btn .ic { width: 17px; height: 17px; transition: transform var(--dur) var(--ease); }
+#new-intake-btn:hover {
+  background-position: 100% 50%;
+  box-shadow:
+    0 12px 30px rgba(34, 58, 92, 0.42),
+    var(--shadow-2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  transform: translateY(-2px);
+}
+#new-intake-btn:hover .ic { transform: rotate(90deg); }
+#new-intake-btn:active { transform: translateY(0); box-shadow: 0 4px 12px rgba(34, 58, 92, 0.28), var(--shadow-1); }
+
 /* =========================================================================
    CARD LISTS (Intake + Decisions)
    ========================================================================= */
