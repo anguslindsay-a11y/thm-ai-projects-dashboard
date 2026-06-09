@@ -338,6 +338,22 @@ main {
 .login-card button:active { transform: translateY(1px); }
 .login-card button:disabled { opacity: 0.55; cursor: not-allowed; }
 
+/* Text-style links under the login forms ("Forgot password?" / "Back to sign in") */
+.login-card button.login-link {
+  width: auto;
+  display: block;
+  margin: 14px auto 0;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--indigo);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.login-card button.login-link:hover { background: none; color: var(--indigo-deep); }
+
 .login-msg {
   font-size: 13px;
   margin-top: 16px;
@@ -706,6 +722,39 @@ td.table-empty .table-empty-sub {
 .pill-OnHold     { background: var(--status-hold-bg);       color: var(--status-hold-fg); }
 .pill-Cancelled  { background: var(--status-cancelled-bg);  color: var(--status-cancelled-fg); }
 
+/* AI governance facet */
+.form-subhead { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); font-weight: 700; }
+.gov-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline); }
+.gov-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
+.pill-risk-Low    { background: var(--status-live-bg);   color: var(--status-live-fg); }
+.pill-risk-Medium { background: var(--status-review-bg); color: var(--status-review-fg); }
+.pill-risk-High   { background: var(--status-hold-bg);   color: var(--status-hold-fg); }
+/* RAG health */
+.pill-health-OnTrack  { background: var(--status-live-bg);   color: var(--status-live-fg); }
+.pill-health-AtRisk   { background: var(--status-review-bg); color: var(--status-review-fg); }
+.pill-health-OffTrack { background: var(--status-hold-bg);   color: var(--status-hold-fg); }
+.health-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 7px; vertical-align: middle; flex: 0 0 auto; }
+.health-OnTrack  { background: var(--status-live-fg); }
+.health-AtRisk   { background: var(--status-review-fg); }
+.health-OffTrack { background: var(--status-hold-fg); }
+.row-marker.blocked { color: #b3261e; }
+.review-due { color: var(--status-hold-fg); font-weight: 600; }
+
+/* Dependency chips */
+.dep { display: inline-block; padding: 1px 8px; border-radius: var(--radius-pill); font-size: 12px; margin: 0 4px 4px 0; }
+.dep-open { background: var(--status-hold-bg); color: var(--status-hold-fg); }
+.dep-done { background: var(--status-cancelled-bg); color: var(--status-cancelled-fg); }
+
+/* Roadmap by quarter */
+.roadmap { display: flex; flex-direction: column; gap: 12px; }
+.road-row { display: grid; grid-template-columns: 72px 1fr; gap: 12px; align-items: start; }
+.road-q { font-family: var(--font-sub); font-weight: 700; font-size: 12px; color: var(--fg-muted); padding-top: 3px; }
+.road-items { display: flex; flex-wrap: wrap; gap: 6px; }
+.road-item { display: inline-block; padding: 3px 9px; border-radius: var(--radius-pill); font-size: 12px; background: var(--bg-panel); border: 1px solid var(--hairline); color: var(--fg-body); }
+.road-item.overdue { border-color: #b3261e; color: #b3261e; }
+.road-item.live { background: var(--status-live-bg); border-color: transparent; color: var(--status-live-fg); }
+.road-unscheduled { margin-top: 10px; font-size: 12px; color: var(--fg-muted); }
+
 /* =========================================================================
    ICONS
    ========================================================================= */
@@ -861,6 +910,26 @@ td.table-empty .table-empty-sub {
 .drawer-head h3 { font-size: 15px; }
 .drawer-close { background: none; border: none; font-size: 24px; line-height: 1; color: var(--fg-muted); cursor: pointer; }
 .drawer-close:hover { color: var(--fg-strong); }
+
+/* Activity corner button (admin-only) */
+#activity-fab {
+  position: fixed; right: 22px; bottom: 22px; z-index: 250;
+  width: 48px; height: 48px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--indigo); color: #fff; border: none; cursor: pointer;
+  box-shadow: var(--shadow-2);
+  transition: background 0.15s var(--ease), transform 0.15s var(--ease);
+}
+#activity-fab[hidden] { display: none; }
+#activity-fab:hover { background: var(--indigo-deep); transform: translateY(-1px); }
+#activity-fab:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; }
+.activity-fab-badge {
+  position: absolute; top: -3px; right: -3px; min-width: 18px; height: 18px;
+  padding: 0 5px; border-radius: 9px; background: var(--status-hold-fg); color: #fff;
+  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center;
+  border: 2px solid var(--bg-surface); box-sizing: border-box;
+}
+.activity-fab-badge[hidden] { display: none; }
 .drawer-body { overflow-y: auto; padding: 8px 14px; }
 .act-item { padding: 12px 6px; border-bottom: 1px solid var(--hairline); }
 .act-item:last-child { border-bottom: none; }
@@ -1460,6 +1529,19 @@ td.table-empty .empty-ic .ic { width: 28px; height: 28px; color: var(--fg-faint)
   font-weight: 500;
 }
 
+/* Email draft modal (decisions → "Draft email") */
+.em-loading {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 6px 0 10px;
+  color: var(--fg-muted); font-size: 13.5px; font-style: italic;
+}
+.em-hint { margin-top: 6px; font-size: 12.5px; color: var(--warn-fg); }
+.em-note {
+  margin-bottom: 16px; padding: 10px 12px;
+  background: var(--warn-bg); color: var(--warn-fg);
+  border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+}
+
 /* =========================================================================
    MISC
    ========================================================================= */
@@ -1543,6 +1625,17 @@ footer::before {
   border-color: var(--ok-fg);
 }
 .deliverable-link::before { content: "↗"; font-weight: 700; font-size: 14px; }
+/* file-path deliverable rendered as a copy-to-clipboard button (file:// anchors
+   are silently blocked by browsers on an https page) */
+button.deliverable-copy { cursor: pointer; font-family: var(--font-body); }
+button.deliverable-copy::before { content: "⧉"; }
+/* deliverable with a disallowed scheme — shown as plain text, never a link */
+.deliverable-text {
+  color: var(--fg-muted);
+  font-size: 13px;
+  word-break: break-all;
+  margin-bottom: 18px;
+}
 
 /* =========================================================================
    NOTES BLOCK (full-width, readable) in expandable row
@@ -1625,6 +1718,66 @@ footer::before {
 .view-title { font-size: 20px; font-weight: 700; }
 .view-sub { color: var(--fg-muted); font-size: 13.5px; margin: 4px 0 0; max-width: 640px; }
 
+/* View-head action buttons (Intake "Submit a project idea", Decisions "Add decision") */
+.view-head .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--indigo);
+  color: #fff;
+  border: 1px solid var(--indigo);
+  padding: 11px 20px;
+  border-radius: var(--radius-pill);
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  min-height: 42px;
+  white-space: nowrap;
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur) var(--ease), background var(--dur) var(--ease),
+              border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.view-head .btn .ic { margin-right: 0; }
+.view-head .btn:hover {
+  background: var(--indigo-deep);
+  border-color: var(--indigo-deep);
+  box-shadow: var(--shadow-2);
+  transform: translateY(-1px);
+}
+.view-head .btn:active { transform: translateY(0); box-shadow: var(--shadow-1); }
+.view-head .btn:focus-visible { outline: none; box-shadow: var(--focus-ring); }
+
+/* Primary CTA — the Intake "Submit a project idea" button gets extra presence */
+#new-intake-btn {
+  position: relative;
+  background-image: linear-gradient(115deg, var(--indigo-soft) 0%, var(--indigo) 45%, var(--indigo-deep) 100%);
+  background-size: 200% 100%;
+  background-position: 0% 50%;
+  border-color: var(--indigo-deep);
+  padding: 13px 26px;
+  font-size: 15px;
+  font-weight: 700;
+  box-shadow:
+    0 6px 18px rgba(34, 58, 92, 0.30),
+    var(--shadow-1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  transition: transform var(--dur) var(--ease), box-shadow var(--dur) var(--ease),
+              background-position 420ms var(--ease);
+}
+#new-intake-btn .ic { width: 17px; height: 17px; transition: transform var(--dur) var(--ease); }
+#new-intake-btn:hover {
+  background-position: 100% 50%;
+  box-shadow:
+    0 12px 30px rgba(34, 58, 92, 0.42),
+    var(--shadow-2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  transform: translateY(-2px);
+}
+#new-intake-btn:hover .ic { transform: rotate(90deg); }
+#new-intake-btn:active { transform: translateY(0); box-shadow: 0 4px 12px rgba(34, 58, 92, 0.28), var(--shadow-1); }
+
 /* =========================================================================
    CARD LISTS (Intake + Decisions)
    ========================================================================= */
@@ -1684,11 +1837,11 @@ footer::before {
 }
 .card-detail .row-actions button.secondary { background: var(--bg-surface); color: var(--fg-body); border-color: var(--hairline); font-weight: 500; }
 
-/* Intake decision pills */
-.pill-decision-pending  { background: var(--status-backlog-bg); color: var(--status-backlog-fg); }
-.pill-decision-approved { background: var(--status-live-bg);    color: var(--status-live-fg); }
-.pill-decision-deferred { background: var(--status-review-bg);  color: var(--status-review-fg); }
-.pill-decision-rejected { background: var(--danger-bg);         color: var(--danger-fg); }
+/* Intake decision pills (class suffixes = the DB's canonical decision values) */
+.pill-decision-pending { background: var(--status-backlog-bg); color: var(--status-backlog-fg); }
+.pill-decision-approve { background: var(--status-live-bg);    color: var(--status-live-fg); }
+.pill-decision-defer   { background: var(--status-review-bg);  color: var(--status-review-fg); }
+.pill-decision-reject  { background: var(--danger-bg);         color: var(--danger-fg); }
 
 /* Decision urgency pills */
 .pill-urgency-Blocking  { background: var(--danger-bg);        color: var(--danger-fg); }
@@ -1698,13 +1851,79 @@ footer::before {
 .card.resolved { opacity: 0.62; }
 .card.resolved .card-title { text-decoration: line-through; }
 
-@media (max-width: 720px) {
-  header { padding: 14px 18px; }
-  main { padding: 20px 16px 60px; }
+/* =========================================================================
+   RESPONSIVE — tablets / phones
+   Desktop is the default above; these layer down. Two breakpoints:
+   820px (tablet + large phones) and 560px (phones).
+   ========================================================================= */
+@media (max-width: 820px) {
+  header { padding: 13px 16px; gap: 12px; }
   header h1 { font-size: 16px; }
-  .kpi .num { font-size: 26px; }
-  th, tbody td { padding: 10px 12px; }
-  .modal .form-grid { grid-template-columns: 1fr; }
+  header .brand { gap: 12px; }
+  header .brand-mark { width: 34px; height: 34px; }
+  header .user-block { gap: 8px; font-size: 12.5px; }
+  header .who { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+  main { padding: 20px 16px 64px; }
+
+  /* Tabs scroll sideways instead of wrapping onto two rows */
+  .viewnav { gap: 2px; flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .viewnav::-webkit-scrollbar { display: none; }
+  .viewtab { padding: 10px 14px; white-space: nowrap; flex: 0 0 auto; }
+
+  /* Filters stack: search full-width, selects two-up, buttons share a row */
+  .filters { gap: 8px; padding: 12px; }
+  .filters input[type="search"] { flex: 1 1 100%; min-width: 0; }
+  .filters select { flex: 1 1 calc(50% - 4px); min-width: 0; }
+  .filters .btn { flex: 1 1 auto; min-height: 42px; }
+
+  /* The dense legend is desktop-only detail */
+  .legend { display: none; }
+
+  /* Section headers: title, then a full-width action button */
+  .view-head { flex-direction: column; align-items: stretch; gap: 12px; }
+  .view-head .btn { width: 100%; justify-content: center; }
+
+  /* Don't let wide charts force horizontal page scroll */
+  .pipeline-wrap, .roadmap { overflow-x: auto; }
+}
+
+@media (max-width: 560px) {
+  header .meta { display: none; }
+  header .brand-mark { width: 30px; height: 30px; }
+  header .brand-mark svg { width: 18px; height: 18px; }
+
+  /* KPIs two-up and tighter */
+  .kpis { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 18px; }
+  .kpi { padding: 14px; }
+  .kpi .num { font-size: 24px; }
+  .kpi .label { font-size: 10px; letter-spacing: 0.08em; }
+  .kpi .kpi-ic { top: 12px; right: 12px; }
+
+  /* Projects table: show the essentials (Project · Status · Progress · Priority),
+     tap a row to expand for Owner / Target / everything else. */
+  table { min-width: 0; }
+  th, tbody td { padding: 11px 12px; }
+  td.project-name { min-width: 0; }
+  th:nth-child(3), th:nth-child(5),
+  .owner-cell, .target-cell { display: none; }
+
+  /* Insights stats two-up */
+  .stat-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+
+  /* Modals fill the screen width for thumb reach */
+  .modal-backdrop { padding: 0; }
+  .modal {
+    max-width: 100%;
+    max-height: 100vh;
+    border-radius: 0;
+    border: none;
+    padding: 22px 18px 24px;
+  }
+  .modal h2 { font-size: 20px; }
+  .modal .form-grid { grid-template-columns: 1fr; gap: 14px; }
+  .modal .modal-actions { flex-wrap: wrap; }
+  .modal .modal-actions button { flex: 1 1 auto; min-height: 44px; }
 }
 
 @media print {
