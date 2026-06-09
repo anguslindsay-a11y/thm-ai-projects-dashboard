@@ -48,7 +48,10 @@ Deno.serve(async (req) => {
     }
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
-    if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY is not set on the function.' }, 500);
+    if (!apiKey) {
+      console.error('draft-decision-email: ANTHROPIC_API_KEY secret is not set on this project');
+      return json({ error: 'ANTHROPIC_API_KEY is not set on the function.' }, 500);
+    }
 
     const recipients = Array.isArray(greeting_names) && greeting_names.length
       ? greeting_names.join(', ')
@@ -96,13 +99,17 @@ REQUIREMENTS
         messages: [{ role: 'user', content: prompt }],
       }),
     });
-    if (!resp.ok) return json({ error: `Anthropic API error ${resp.status}` }, 502);
+    if (!resp.ok) {
+      console.error('draft-decision-email: Anthropic API error', resp.status, await resp.text());
+      return json({ error: `Anthropic API error ${resp.status}` }, 502);
+    }
     const out = await resp.json();
     const text = out?.content?.find((b: { type: string }) => b.type === 'text')?.text;
     if (!text) return json({ error: 'No draft returned.' }, 502);
     const draft = JSON.parse(text);
     return json({ subject: draft.subject, body: draft.body });
   } catch (e) {
+    console.error('draft-decision-email: unhandled error', e);
     return json({ error: String(e) }, 500);
   }
 });
