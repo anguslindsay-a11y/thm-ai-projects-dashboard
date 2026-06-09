@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <title>THM AI Projects Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%231E3A8A'/><text x='16' y='22' font-family='Arial,sans-serif' font-size='15' font-weight='700' fill='white' text-anchor='middle'>AI</text></svg>">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><rect width='24' height='24' rx='6' fill='%23223a5c'/><g transform='translate(3 3) scale(0.75)' fill='none' stroke='white' stroke-width='2.4' stroke-linecap='round' stroke-linejoin='round'><path d='M3 11.5L12 4l9 7.5'/><path d='M5 10.5V20h14v-9.5'/><path d='M10 20v-5h4v5'/></g></svg>">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&family=Oswald:wght@500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <!-- canvas-confetti is loaded on demand (see loadScript) to keep first load light -->
 <link rel="stylesheet" href="styles.css">
@@ -30,7 +30,7 @@
     </div>
 
     <h2>AI Projects Dashboard</h2>
-    <p class="login-sub">Sign in with your <strong>@thmmedia.com</strong> email. New here? Use the temporary password <strong>THMnew2026!</strong> — you'll set your own right after.</p>
+    <p class="login-sub">Sign in with your <strong>@thmmedia.com</strong> email.</p>
 
     <form id="password-form">
       <label for="pw-email">Email</label>
@@ -39,6 +39,15 @@
       <input id="pw-password" type="password" required autocomplete="current-password">
       <button type="submit" id="pw-btn">Sign in</button>
       <button type="button" class="login-link" id="forgot-link">Forgot password?</button>
+      <!-- Starter password lives behind a disclosure so it isn't shouted on first paint -->
+      <details class="login-first-time">
+        <summary>First time here?</summary>
+        <div class="lft-body">
+          <p>Sign in with your <strong>@thmmedia.com</strong> email and the shared starter password:</p>
+          <p><code class="lft-pw">THMnew2026!</code></p>
+          <p>You'll set your own password right after you sign in.</p>
+        </div>
+      </details>
     </form>
 
     <!-- Password reset: email → 6-digit code (our email templates are token-only, no links) -->
@@ -130,7 +139,6 @@
         <span><span class="lg signed">✓</span> signed off</span>
         <span><span class="lg od">●</span> past due</span>
         <span>💤 stale 30d+</span>
-        <span><strong>Priority</strong> score /15 = Impact + Ease + Fit</span>
       </div>
     </div>
 
@@ -143,7 +151,7 @@
             <th data-sort="owners" tabindex="0" role="button" aria-label="Sort by Owner">Owner</th>
             <th data-sort="progress" tabindex="0" role="button" aria-label="Sort by Progress">Progress</th>
             <th data-sort="target_date" tabindex="0" role="button" aria-label="Sort by Target">Target</th>
-            <th data-sort="score" tabindex="0" role="button" aria-label="Sort by priority score">Priority</th>
+            <th data-sort="priority" tabindex="0" role="button" aria-label="Sort by Priority">Priority</th>
           </tr>
         </thead>
         <tbody id="projects-body"></tbody>
