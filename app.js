@@ -7,6 +7,13 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 const STATUSES = ['Backlog','Discovery','In Progress','In Review','Live','On Hold','Cancelled'];
 
+// Maps a status to its CSS colour var (shared by the pipeline bar + priority matrix).
+const STATUS_VAR = {
+  'Backlog': '--status-backlog-fg', 'Discovery': '--status-discovery-fg',
+  'In Progress': '--status-progress-fg', 'In Review': '--status-review-fg',
+  'Live': '--status-live-fg', 'On Hold': '--status-hold-fg', 'Cancelled': '--status-cancelled-fg',
+};
+
 // ============================================================================
 // STATE
 // ============================================================================
@@ -466,8 +473,11 @@ async function fetchAudit(projectId) {
 // ============================================================================
 // REALTIME
 // ============================================================================
+let realtimeChannel = null;
 function subscribeRealtime() {
-  sb.channel('ai_projects_changes')
+  // Tear down any existing channel first so repeated mounts can't stack duplicates.
+  if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
+  realtimeChannel = sb.channel('ai_projects_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_projects' }, payload => {
       if (payload.eventType === 'INSERT') projects.push(payload.new);
       else if (payload.eventType === 'UPDATE') {
@@ -1180,7 +1190,41 @@ function renderInsights() {
       ).join('')
     : '<div class="act-empty">No projects yet.</div>';
 
+  renderMatrix();
   renderRoadmap();
+}
+
+// Impact (y) × Ease (x) bubble plot — bubble size = strategic fit, colour = status.
+// Pure CSS/DOM to match the no-dependency house style.
+function renderMatrix() {
+  const plot = document.getElementById('matrix-plot');
+  if (!plot) return;
+  const scored = projects.filter(p => p.impact && p.ease && p.status !== 'Cancelled');
+  const note = document.getElementById('matrix-note');
+  if (note) note.textContent = scored.length
+    ? `${scored.length} of ${projects.length} projects scored · bubble size = strategic fit · colour = status`
+    : 'No projects scored on both impact and ease yet.';
+
+  const quads = [
+    ['Major bets', 'mq-tl'], ['Quick wins', 'mq-tr'],
+    ['Reconsider', 'mq-bl'], ['Fill-ins', 'mq-br'],
+  ].map(([t, c]) => `<span class="mq ${c}">${t}</span>`).join('');
+
+  const pos = v => 12 + (v - 1) / 4 * 76;            // 1→12%, 5→88% (keeps bubbles off the edges)
+  const dots = scored.map((p, i) => {
+    const sf = p.strategic_fit || 3;
+    const d = 10 + sf * 1.6;                          // ~12–18px
+    const jx = ((i * 37) % 7 - 3) * 0.9;              // tiny deterministic jitter to de-overlap ties
+    const jy = ((i * 53) % 7 - 3) * 0.9;
+    const color = `var(${STATUS_VAR[p.status] || '--status-backlog-fg'})`;
+    return `<button type="button" class="mdot" data-id="${escapeHTML(String(p.id))}"
+      style="left:calc(${pos(p.ease).toFixed(1)}% + ${jx}px);bottom:calc(${pos(p.impact).toFixed(1)}% + ${jy}px);width:${d}px;height:${d}px;background:${color}"
+      title="${escapeHTML(p.project_name)} — impact ${p.impact}, ease ${p.ease}, fit ${sf}"></button>`;
+  }).join('');
+
+  plot.innerHTML = quads + dots;
+  plot.querySelectorAll('.mdot').forEach(el =>
+    el.addEventListener('click', () => openProjectModal(el.dataset.id)));
 }
 
 // Roadmap — projects grouped by the quarter of their target date. Pure DOM, no lib.
@@ -1573,6 +1617,7 @@ function openProjectModal(id) {
   if (!isAdmin()) return;
   showView('projects');
   editingId = id;
+  promotingIntakeId = null;   // a plain open is not a promotion (promoteIntake sets this after)
   const p = id ? projects.find(x => x.id === id) : null;
   document.getElementById('modal-title').textContent = id ? 'Edit project' : 'New project';
   document.getElementById('modal-sub').textContent = id
@@ -1617,6 +1662,36 @@ function openProjectModal(id) {
 function closeProjectModal() {
   dismissModal(document.getElementById('project-modal'));
   editingId = null;
+  promotingIntakeId = null;
+}
+
+// Create a registry project from an intake submission: open the (tested) New Project
+// modal pre-filled from the submission, then link the two on save.
+function promoteIntake(id) {
+  if (!isAdmin()) return;
+  const s = intake.find(x => x.id === id);
+  if (!s) return;
+  if (s.promoted_to_project_id) { showToast('Already in the registry'); return; }
+  openProjectModal(null);          // fresh New Project modal (resets promotingIntakeId)
+  promotingIntakeId = id;
+  const set = (f, v) => document.getElementById('f-' + f).value = (v ?? '');
+  set('project_name', s.project_name);
+  const themeSel = document.getElementById('f-theme');
+  if (s.business_area && [...themeSel.options].some(o => o.value === s.business_area)) {
+    set('theme', s.business_area);
+  }
+  set('status', 'Backlog');
+  set('owners', s.proposed_owner || '');
+  set('target_date', s.proposed_target_date || '');
+  set('impact', s.impact ?? '');
+  set('ease', s.ease ?? '');
+  set('strategic_fit', s.strategic_fit ?? '');
+  set('success_metric', s.success_metric || '');
+  set('risk_flags', (s.risk_flags || []).join(', '));
+  set('description', s.problem_being_solved || '');
+  set('notes', [s.why_now_strategic_fit, s.technical_approach].filter(Boolean).join('\n\n'));
+  document.getElementById('modal-title').textContent = 'Add to registry';
+  document.getElementById('modal-sub').textContent = 'Creates a project from this submission and links them. Review the fields, then save.';
 }
 
 async function saveProject(e) {
@@ -1677,6 +1752,8 @@ async function saveProject(e) {
     err.style.display = 'block';
     return;
   }
+  // If this insert came from an intake submission, link them (capture before close clears it).
+  const promoteLink = (!wasEditing && res.data) ? promotingIntakeId : null;
   // Merge the saved row locally so the edit shows even if realtime is down.
   if (res.data) {
     const i = projects.findIndex(p => p.id === res.data.id);
@@ -1687,8 +1764,19 @@ async function saveProject(e) {
   }
   modalDirty['project-modal'] = false;
   closeProjectModal();
+  if (promoteLink) {
+    const { error: linkErr } = await sb.from('ai_intake_submissions').update({
+      promoted_to_project_id: res.data.id,
+      leadership_decision: 'approve',
+      decided_by: profile.id,
+      decided_by_name: profile.display_name,
+      decided_at: new Date().toISOString(),
+    }).eq('id', promoteLink);
+    if (linkErr) showToast("Project added, but couldn't link the submission: " + linkErr.message, 'err');
+    await fetchIntake(); renderIntake();
+  }
   if (wentLive) { showToast('🎉 ' + payload.project_name + ' is now live!'); fireConfetti(); }
-  else showToast(wasEditing ? 'Project updated' : 'Project added');
+  else showToast(wasEditing ? 'Project updated' : (promoteLink ? 'Added to registry from intake' : 'Project added'));
 }
 
 // Deletes waiting out their 5s undo window (id -> timer). Flushed immediately
@@ -1828,6 +1916,7 @@ let intake = [];
 let decisions = [];
 let currentView = 'projects';
 let intakeDecisionId = null;
+let promotingIntakeId = null;   // set while creating a project from an intake submission
 let editingDecisionId = null;
 let intakeFilter    = { search: '', status: '' };
 let decisionsFilter = { search: '', status: '' };
@@ -1941,13 +2030,20 @@ function renderIntake() {
           ${field('Decision', decLabel + (s.decided_by_name ? ` — ${s.decided_by_name} · ${formatWhen(s.decided_at)}` : ''))}
           ${field('Decision notes', s.decision_notes)}
         </div>
-        ${isAdmin() ? `<div class="row-actions"><button data-intake-action="decide" data-id="${s.id}">Record decision</button></div>` : ''}
+        ${isAdmin() ? `<div class="row-actions">
+          <button data-intake-action="decide" data-id="${s.id}">Record decision</button>
+          ${s.promoted_to_project_id
+            ? `<span class="promoted-tag">✓ In registry</span>`
+            : `<button data-intake-action="promote" data-id="${s.id}">Add to registry</button>`}
+        </div>` : ''}
       </div>
     </div>`;
   }).join('');
   wireCards('intake-list');
   list.querySelectorAll('[data-intake-action="decide"]').forEach(b =>
     b.addEventListener('click', e => { e.stopPropagation(); openIntakeDecision(b.dataset.id); }));
+  list.querySelectorAll('[data-intake-action="promote"]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); promoteIntake(b.dataset.id); }));
 }
 
 function openIntakeModal() {
