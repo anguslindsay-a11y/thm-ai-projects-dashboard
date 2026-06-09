@@ -342,21 +342,21 @@
 <div id="intake-modal" class="modal-backdrop">
   <div class="modal" role="dialog" aria-modal="true" aria-labelledby="intake-title">
     <h2 id="intake-title">Submit a project idea</h2>
-    <p class="modal-sub">Fill in what you can — it's fine to leave fields blank. Masen / Angus / leadership review before any build starts.</p>
+    <p class="modal-sub">Just a few quick questions — you don't need to have it all figured out. Masen, Angus, or leadership will review it before anything gets built.</p>
     <form id="intake-form">
       <div class="form-grid">
         <div class="full">
-          <label for="i-project_name">Project name *</label>
-          <input id="i-project_name" required>
+          <label for="i-project_name">What's your idea? *</label>
+          <input id="i-project_name" placeholder="Give it a short name" required>
         </div>
-        <div>
-          <label for="i-proposed_owner">Proposed owner</label>
-          <input id="i-proposed_owner" placeholder="Who would drive it?">
+        <div class="full">
+          <label for="i-problem_being_solved">What problem would this solve?</label>
+          <textarea id="i-problem_being_solved" style="min-height:70px" placeholder="What's painful or slow today, or what could be better?"></textarea>
         </div>
-        <div>
-          <label for="i-business_area">Business area / theme</label>
+        <div class="full">
+          <label for="i-business_area">What part of the business is it for?</label>
           <select id="i-business_area">
-            <option value="">— Select —</option>
+            <option value="">— Pick one (optional) —</option>
             <option>Foundation</option>
             <option>Sales — Rep Tools</option>
             <option>Sales — Pipeline &amp; Renewal</option>
@@ -368,68 +368,8 @@
           </select>
         </div>
         <div class="full">
-          <label for="i-problem_being_solved">Problem being solved</label>
-          <textarea id="i-problem_being_solved" style="min-height:60px"></textarea>
-        </div>
-        <div class="full">
-          <label for="i-why_now_strategic_fit">Why now / strategic fit</label>
-          <textarea id="i-why_now_strategic_fit" style="min-height:60px"></textarea>
-        </div>
-        <div class="full">
-          <label for="i-success_metric">Success metric</label>
-          <textarea id="i-success_metric" style="min-height:60px"></textarea>
-        </div>
-        <div class="full">
-          <label for="i-technical_approach">AI / technical approach</label>
-          <textarea id="i-technical_approach" style="min-height:60px"></textarea>
-        </div>
-        <div>
-          <label for="i-integrations_data_sources">Integrations / data sources</label>
-          <input id="i-integrations_data_sources" placeholder="Supabase, MM, CallRail…">
-        </div>
-        <div>
-          <label for="i-data_handled">Data handled (sensitivity)</label>
-          <input id="i-data_handled" placeholder="PII? Payments? Rep data?">
-        </div>
-        <div>
-          <label for="i-effort_estimate">Effort estimate</label>
-          <input id="i-effort_estimate" placeholder="&lt;1 wk · 1–4 wk · 1–3 mo">
-        </div>
-        <div>
-          <label for="i-proposed_target_date">Proposed target date</label>
-          <input id="i-proposed_target_date" type="date">
-        </div>
-        <div>
-          <label for="i-impact">Impact (1–5)</label>
-          <input id="i-impact" type="number" min="1" max="5">
-        </div>
-        <div>
-          <label for="i-ease">Ease (1–5)</label>
-          <input id="i-ease" type="number" min="1" max="5">
-        </div>
-        <div>
-          <label for="i-strategic_fit">Strategic Fit (1–5)</label>
-          <input id="i-strategic_fit" type="number" min="1" max="5">
-        </div>
-        <div class="full">
-          <label for="i-human_in_the_loop">Human-in-the-loop requirement</label>
-          <input id="i-human_in_the_loop" placeholder="Where does a human approve before output ships?">
-        </div>
-        <div class="full">
-          <label for="i-rollback_plan">Rollback plan</label>
-          <input id="i-rollback_plan" placeholder="If it goes wrong, how do we undo it?">
-        </div>
-        <div class="full">
-          <label for="i-risk_flags">Risk flags (comma-separated)</label>
-          <input id="i-risk_flags" placeholder="Human Review, Data Privacy">
-        </div>
-        <div>
-          <label for="i-stakeholders">Stakeholders / reviewers</label>
-          <input id="i-stakeholders">
-        </div>
-        <div>
-          <label for="i-open_questions">Open questions</label>
-          <input id="i-open_questions">
+          <label for="i-success_metric">How would we know it worked?</label>
+          <textarea id="i-success_metric" style="min-height:70px" placeholder="What would success look like? (optional)"></textarea>
         </div>
       </div>
       <div id="intake-err" class="modal-err" style="display:none"></div>

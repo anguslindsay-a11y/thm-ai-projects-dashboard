@@ -1581,7 +1581,7 @@ function renderIntake() {
           ${field('Integrations / data sources', s.integrations_data_sources)}
           ${field('Data handled', s.data_handled)}
           ${field('Effort estimate', s.effort_estimate)}
-          ${field('Impact / Ease / Fit', `${s.impact ?? '—'} / ${s.ease ?? '—'} / ${s.strategic_fit ?? '—'}  (score ${score}/15)`)}
+          ${field('Impact / Ease / Fit', (s.impact != null || s.ease != null || s.strategic_fit != null) ? `${s.impact ?? '—'} / ${s.ease ?? '—'} / ${s.strategic_fit ?? '—'}  (score ${score}/15)` : '')}
           ${field('Proposed target', s.proposed_target_date ? formatDate(s.proposed_target_date) : '')}
           ${field('Human-in-the-loop', s.human_in_the_loop)}
           ${field('Rollback plan', s.rollback_plan)}
@@ -1601,10 +1601,8 @@ function renderIntake() {
 }
 
 function openIntakeModal() {
-  ['i-project_name','i-proposed_owner','i-business_area','i-problem_being_solved','i-why_now_strategic_fit',
-   'i-success_metric','i-technical_approach','i-integrations_data_sources','i-data_handled','i-effort_estimate',
-   'i-proposed_target_date','i-impact','i-ease','i-strategic_fit','i-human_in_the_loop','i-rollback_plan',
-   'i-risk_flags','i-stakeholders','i-open_questions'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['i-project_name','i-business_area','i-problem_being_solved','i-success_metric']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('intake-err').style.display = 'none';
   openModal(document.getElementById('intake-modal'));
 }
@@ -1612,29 +1610,17 @@ function openIntakeModal() {
 async function saveIntake(e) {
   e.preventDefault();
   const g = id => document.getElementById(id).value.trim();
-  const num = id => { const v = document.getElementById(id).value; return v === '' ? null : Number(v); };
+  // Staff intake is deliberately lean — just these four fields. The technical /
+  // scoring columns (impact, ease, strategic_fit, technical_approach, risk_flags,
+  // etc.) are left null here and filled by admins when an idea is promoted to a
+  // real project. See docs/[C] AI Projects Dashboard.md.
   const payload = {
-    project_name:              g('i-project_name'),
-    proposed_owner:            g('i-proposed_owner') || null,
-    business_area:             g('i-business_area') || null,
-    problem_being_solved:      g('i-problem_being_solved') || null,
-    why_now_strategic_fit:     g('i-why_now_strategic_fit') || null,
-    success_metric:            g('i-success_metric') || null,
-    technical_approach:        g('i-technical_approach') || null,
-    integrations_data_sources: g('i-integrations_data_sources') || null,
-    data_handled:              g('i-data_handled') || null,
-    effort_estimate:           g('i-effort_estimate') || null,
-    human_in_the_loop:         g('i-human_in_the_loop') || null,
-    rollback_plan:             g('i-rollback_plan') || null,
-    risk_flags:                parseCSV(g('i-risk_flags')),
-    impact:                    num('i-impact'),
-    ease:                      num('i-ease'),
-    strategic_fit:             num('i-strategic_fit'),
-    proposed_target_date:      g('i-proposed_target_date') || null,
-    stakeholders:              g('i-stakeholders') || null,
-    open_questions:            g('i-open_questions') || null,
-    submitted_by:              profile.id,
-    submitted_by_name:         profile.display_name,
+    project_name:         g('i-project_name'),
+    business_area:        g('i-business_area') || null,
+    problem_being_solved: g('i-problem_being_solved') || null,
+    success_metric:       g('i-success_metric') || null,
+    submitted_by:         profile.id,
+    submitted_by_name:    profile.display_name,
   };
   const err = document.getElementById('intake-err');
   const res = await sb.from('ai_intake_submissions').insert(payload);
