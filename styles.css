@@ -1461,6 +1461,19 @@ td.table-empty .empty-ic .ic { width: 28px; height: 28px; color: var(--fg-faint)
   font-weight: 500;
 }
 
+/* Email draft modal (decisions → "Draft email") */
+.em-loading {
+  display: flex; flex-direction: column; gap: 12px;
+  padding: 6px 0 10px;
+  color: var(--fg-muted); font-size: 13.5px; font-style: italic;
+}
+.em-hint { margin-top: 6px; font-size: 12.5px; color: var(--warn-fg); }
+.em-note {
+  margin-bottom: 16px; padding: 10px 12px;
+  background: var(--warn-bg); color: var(--warn-fg);
+  border-radius: var(--radius-sm); font-size: 13px; font-weight: 500;
+}
+
 /* =========================================================================
    MISC
    ========================================================================= */

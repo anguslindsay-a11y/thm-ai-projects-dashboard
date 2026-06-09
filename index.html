@@ -492,6 +492,43 @@
   </div>
 </div>
 
+<!-- EMAIL DRAFT MODAL (decisions → "Draft email" — AI-written, editable before sending) -->
+<div id="email-modal" class="modal-backdrop">
+  <div class="modal" style="max-width:560px" role="dialog" aria-modal="true" aria-labelledby="em-title">
+    <h2 id="em-title">Email draft</h2>
+    <p class="modal-sub">Review and edit before sending — nothing goes out until you open it in your mail app.</p>
+    <div id="em-loading" class="em-loading" hidden>
+      Writing a plain-English draft…
+      <span class="skel"></span>
+      <span class="skel" style="width:78%"></span>
+      <span class="skel" style="width:62%"></span>
+    </div>
+    <form id="em-form" hidden>
+      <div id="em-note" class="em-note" hidden>AI draft unavailable — this is the basic template. Edit before sending.</div>
+      <div class="form-grid">
+        <div class="full">
+          <label for="em-to">To</label>
+          <input id="em-to" type="text" placeholder="name@thmmedia.com, name@thmmedia.com" autocomplete="off">
+          <div id="em-to-hint" class="em-hint" hidden></div>
+        </div>
+        <div class="full">
+          <label for="em-subject">Subject</label>
+          <input id="em-subject" type="text">
+        </div>
+        <div class="full">
+          <label for="em-body">Body</label>
+          <textarea id="em-body" rows="12"></textarea>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel" id="em-cancel">Close</button>
+        <button type="button" class="btn-cancel" id="em-copy">Copy email</button>
+        <button type="submit" class="btn-save">Open in mail app</button>
+      </div>
+    </form>
+  </div>
+</div>
+
 <!-- SET-PASSWORD MODAL (required on first sign-in; locked, can't dismiss) -->
 <div id="password-modal" class="modal-backdrop" data-locked="1">
   <div class="modal" style="max-width:460px" role="dialog" aria-modal="true" aria-labelledby="password-title">

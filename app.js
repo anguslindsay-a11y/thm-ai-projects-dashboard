@@ -1403,6 +1403,10 @@ function attachEvents() {
   document.getElementById('decision-form').addEventListener('submit', e => { e.preventDefault(); saveDecision(false); });
   document.getElementById('decision-resolve').addEventListener('click', () => saveDecision(true));
   document.getElementById('decision-delete').addEventListener('click', deleteDecision);
+  // Email draft modal (decisions → "Draft email")
+  document.getElementById('em-cancel').addEventListener('click', () => dismissModal(document.getElementById('email-modal')));
+  document.getElementById('em-form').addEventListener('submit', e => { e.preventDefault(); openEmailDraftInMailApp(); });
+  document.getElementById('em-copy').addEventListener('click', copyEmailDraft);
   // Intake + Decisions list controls (client-side search / status filter / export)
   let intakeSearchTimer;
   document.getElementById('intake-search').addEventListener('input', e => {
@@ -2098,9 +2102,21 @@ function joinNames(names) {
   return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
 }
 
+let emailDraftSeq = 0;   // guards against a stale AI response landing after a newer draft opened
+
 async function draftDecisionEmail(id) {
   const d = decisions.find(x => x.id === id);
   if (!d) return;
+  const seq = ++emailDraftSeq;
+  const bd = document.getElementById('email-modal');
+
+  // Open the modal straight away in its loading state — the AI draft takes a few seconds.
+  document.getElementById('em-loading').hidden = false;
+  document.getElementById('em-form').hidden = true;
+  document.getElementById('em-note').hidden = true;
+  document.getElementById('em-to-hint').hidden = true;
+  openModal(bd);
+
   const profiles = await fetchDeciderProfiles();
   const tokens = deciderTokens(d.who_decides);
 
@@ -2112,6 +2128,43 @@ async function draftDecisionEmail(id) {
     greetNames.push(p ? p.display_name.trim().split(/\s+/)[0] : t);
   });
 
+  // Ask Claude (draft-decision-email edge function) to write the email in plain
+  // English; fall back to the local template on any failure or a 20s timeout.
+  let draft = null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const { data, error } = await sb.functions.invoke('draft-decision-email', {
+      body: {
+        decision_id: id,
+        greeting_names: greetNames,
+        sender_name: (profile.display_name || '').trim().split(/\s+/)[0],
+      },
+      signal: ctrl.signal,
+    });
+    if (!error && data && !data.error && data.subject && data.body) draft = { subject: data.subject, body: data.body };
+  } catch (_) { /* network failure or timeout abort — fall back below */ }
+  clearTimeout(timer);
+  const fellBack = !draft;
+  if (fellBack) draft = buildLocalDraft(d, greetNames);
+
+  if (seq !== emailDraftSeq || !bd.classList.contains('open')) return;   // user moved on meanwhile
+
+  document.getElementById('em-to').value = emails.join(', ');
+  document.getElementById('em-subject').value = draft.subject;
+  document.getElementById('em-body').value = draft.body;
+  document.getElementById('em-note').hidden = !fellBack;
+  const hint = document.getElementById('em-to-hint');
+  hint.hidden = emails.length > 0;
+  if (!emails.length) hint.textContent = `Couldn't match '${d.who_decides || '(no deciders)'}' to a staff email — add recipients manually.`;
+  document.getElementById('em-loading').hidden = true;
+  document.getElementById('em-form').hidden = false;
+  setTimeout(() => document.getElementById('em-to').focus(), 30);
+}
+
+// Local fallback template — used when the AI draft is unavailable. Same wording
+// the feature shipped with; returns { subject, body } for the editable modal.
+function buildLocalDraft(d, greetNames) {
   const projectName = d.related_project_text ||
     (d.related_project_id ? (projects.find(p => p.id === d.related_project_id)?.project_name || '') : '');
   const subjectText = d.decision_needed.length > 80 ? d.decision_needed.slice(0, 80) + '…' : d.decision_needed;
@@ -2124,40 +2177,53 @@ async function draftDecisionEmail(id) {
     'Eventually': 'No rush on this one — whenever you get a moment.',
   };
 
-  const buildMailto = ctxLimit => {
-    let ctx = (d.notes_context || '').trim();
-    if (ctx.length > ctxLimit) ctx = ctx.slice(0, ctxLimit) + '…';
-    const opener = projectName
-      ? `I'm hoping you can help settle an open question on the ${projectName} project (from the AI Projects tracker):`
-      : "I'm hoping you can help settle an open question from the AI Projects tracker:";
-    const body = [
-      `Hi ${joinNames(greetNames)},`,
-      '',
-      opener,
-      '',
-      d.decision_needed,
-      ...(ctx ? ['', `A bit of background: ${ctx}`] : []),
-      ...(URGENCY_LINE[d.urgency] ? ['', URGENCY_LINE[d.urgency]] : []),
-      '',
-      "Could you reply with your call, or grab me if it's easier to talk through? The full list of open decisions is here:",
-      'https://anguslindsay-a11y.github.io/thm-ai-projects-dashboard/?v=decisions',
-      '',
-      'Thanks,',
-      profile.display_name,
-    ].join('\n');
-    return 'mailto:' + encodeURIComponent(emails.join(',')) +
-      '?subject=' + encodeURIComponent('Decision needed: ' + subjectText) +
-      '&body=' + encodeURIComponent(body);
-  };
+  let ctx = (d.notes_context || '').trim();
+  if (ctx.length > 400) ctx = ctx.slice(0, 400) + '…';
+  const opener = projectName
+    ? `I'm hoping you can help settle an open question on the ${projectName} project (from the AI Projects tracker):`
+    : "I'm hoping you can help settle an open question from the AI Projects tracker:";
+  const body = [
+    `Hi ${joinNames(greetNames)},`,
+    '',
+    opener,
+    '',
+    d.decision_needed,
+    ...(ctx ? ['', `A bit of background: ${ctx}`] : []),
+    ...(URGENCY_LINE[d.urgency] ? ['', URGENCY_LINE[d.urgency]] : []),
+    '',
+    "Could you reply with your call, or grab me if it's easier to talk through? The full list of open decisions is here:",
+    'https://anguslindsay-a11y.github.io/thm-ai-projects-dashboard/?v=decisions',
+    '',
+    'Thanks,',
+    profile.display_name,
+  ].join('\n');
+  return { subject: 'Decision needed: ' + subjectText, body };
+}
 
-  // Mail clients choke on very long mailto: URLs — shrink the context until it fits.
-  let mailto = buildMailto(400);
-  if (mailto.length > 1800) mailto = buildMailto(150);
-  if (mailto.length > 1800) mailto = buildMailto(0);
+// "Open in mail app" — build a mailto: from whatever is in the fields right now.
+// Mail clients choke on very long mailto: URLs — trim the body until it fits.
+function openEmailDraftInMailApp() {
+  const to = document.getElementById('em-to').value.trim();
+  const subject = document.getElementById('em-subject').value.trim();
+  let body = document.getElementById('em-body').value;
+  const buildUrl = b => 'mailto:' + encodeURIComponent(to) +
+    '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(b);
+  let url = buildUrl(body);
+  if (url.length > 1800) {
+    while (body.length && buildUrl(body + '…').length > 1800) body = body.slice(0, -40);
+    url = buildUrl(body + '…');
+    showToast('Long draft — body truncated in the mail app; use Copy instead', 'err');
+  } else {
+    showToast('Email draft opened — check your mail app');
+  }
+  window.location.href = url;
+}
 
-  window.location.href = mailto;
-  if (emails.length) showToast('Email draft opened — check your mail app');
-  else showToast(`Couldn't match '${d.who_decides || '(no deciders)'}' to an email — add the recipient yourself`, 'err');
+function copyEmailDraft() {
+  const text = `Subject: ${document.getElementById('em-subject').value.trim()}\n\n${document.getElementById('em-body').value}`;
+  navigator.clipboard.writeText(text).then(
+    () => showToast('Email copied — paste it into a new message'),
+    () => showToast("Couldn't copy — your browser blocked clipboard access", 'err'));
 }
 
 function openDecisionModal(id) {
