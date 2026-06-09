@@ -1805,6 +1805,7 @@ let intakeDecisionId = null;
 let editingDecisionId = null;
 let intakeFilter    = { search: '', status: '' };
 let decisionsFilter = { search: '', status: '' };
+let deciderProfiles = null;  // lazy cache of profiles rows for "Draft email" recipient matching
 
 const URGENCY_RANK = { 'Blocking': 0, 'Next Up': 1, 'Soon': 2, 'Eventually': 3 };
 // DB stores the decision verb ('approve'/'defer'/'reject'/'pending' — matches
@@ -2053,13 +2054,110 @@ function renderDecisions() {
           ${field('Notes / context', d.notes_context)}
           ${resolved ? field('Resolution', (d.resolution_notes || '') + (d.resolved_by_name ? ` — ${d.resolved_by_name}` : '')) : ''}
         </div>
-        ${isAdmin() ? `<div class="row-actions"><button data-decision-action="edit" data-id="${d.id}">${resolved ? 'Edit' : 'Manage / resolve'}</button></div>` : ''}
+        ${isAdmin() ? `<div class="row-actions"><button data-decision-action="edit" data-id="${d.id}">${resolved ? 'Edit' : 'Manage / resolve'}</button>${!resolved ? `<button class="secondary" data-decision-action="email" data-id="${d.id}">✉️ Draft email</button>` : ''}</div>` : ''}
       </div>
     </div>`;
   }).join('');
   wireCards('decisions-list');
   list.querySelectorAll('[data-decision-action="edit"]').forEach(b =>
     b.addEventListener('click', e => { e.stopPropagation(); openDecisionModal(b.dataset.id); }));
+  list.querySelectorAll('[data-decision-action="email"]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); draftDecisionEmail(b.dataset.id); }));
+}
+
+// ---- "Draft email" on open decisions ----
+// Profiles are fetched once per session and cached (RLS lets admins read all rows).
+async function fetchDeciderProfiles() {
+  if (deciderProfiles) return deciderProfiles;
+  const { data, error } = await sb.from('profiles').select('display_name,email,role');
+  if (error) { console.error(error); return []; }   // don't cache a failed fetch
+  deciderProfiles = data || [];
+  return deciderProfiles;
+}
+
+// "Masen + Matt", "Mel + IT", "Everyone (group conversation)" → ['Masen','Matt'] etc.
+function deciderTokens(whoDecides) {
+  return (whoDecides || '').split(/[+,]/)
+    .map(t => t.replace(/\(.*?\)/g, '').trim())
+    .filter(Boolean);
+}
+
+// Match a token to a profile by first name: exact, prefix either way ("Mel" ↔ "Melanie").
+// Tokens under 3 chars never match — too easy to hit the wrong person.
+function matchDeciderProfile(token, profiles) {
+  if (token.length < 3) return null;
+  const tok = token.toLowerCase();
+  return profiles.find(p => {
+    const first = (p.display_name || '').trim().split(/\s+/)[0].toLowerCase();
+    return first && (first === tok || first.startsWith(tok) || tok.startsWith(first));
+  }) || null;
+}
+
+function joinNames(names) {
+  if (names.length <= 1) return names[0] || 'all';
+  return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+}
+
+async function draftDecisionEmail(id) {
+  const d = decisions.find(x => x.id === id);
+  if (!d) return;
+  const profiles = await fetchDeciderProfiles();
+  const tokens = deciderTokens(d.who_decides);
+
+  const emails = [], greetNames = [];
+  tokens.forEach(t => {
+    const p = matchDeciderProfile(t, profiles);
+    if (p && p.email && !emails.includes(p.email)) emails.push(p.email);
+    // Greet by matched first name when we found one ("Mel" → "Melanie"), else keep the token.
+    greetNames.push(p ? p.display_name.trim().split(/\s+/)[0] : t);
+  });
+
+  const projectName = d.related_project_text ||
+    (d.related_project_id ? (projects.find(p => p.id === d.related_project_id)?.project_name || '') : '');
+  const subjectText = d.decision_needed.length > 80 ? d.decision_needed.slice(0, 80) + '…' : d.decision_needed;
+
+  // Urgency rendered as a human sentence, not a tracker label.
+  const URGENCY_LINE = {
+    'Blocking':   'This one is currently blocking progress, so a quick answer would be a big help.',
+    'Next Up':    'This is next in line for us, so it would be great to settle it in the next week or so.',
+    'Soon':       'No fire drill, but it would be good to have an answer soon.',
+    'Eventually': 'No rush on this one — whenever you get a moment.',
+  };
+
+  const buildMailto = ctxLimit => {
+    let ctx = (d.notes_context || '').trim();
+    if (ctx.length > ctxLimit) ctx = ctx.slice(0, ctxLimit) + '…';
+    const opener = projectName
+      ? `I'm hoping you can help settle an open question on the ${projectName} project (from the AI Projects tracker):`
+      : "I'm hoping you can help settle an open question from the AI Projects tracker:";
+    const body = [
+      `Hi ${joinNames(greetNames)},`,
+      '',
+      opener,
+      '',
+      d.decision_needed,
+      ...(ctx ? ['', `A bit of background: ${ctx}`] : []),
+      ...(URGENCY_LINE[d.urgency] ? ['', URGENCY_LINE[d.urgency]] : []),
+      '',
+      "Could you reply with your call, or grab me if it's easier to talk through? The full list of open decisions is here:",
+      'https://anguslindsay-a11y.github.io/thm-ai-projects-dashboard/?v=decisions',
+      '',
+      'Thanks,',
+      profile.display_name,
+    ].join('\n');
+    return 'mailto:' + encodeURIComponent(emails.join(',')) +
+      '?subject=' + encodeURIComponent('Decision needed: ' + subjectText) +
+      '&body=' + encodeURIComponent(body);
+  };
+
+  // Mail clients choke on very long mailto: URLs — shrink the context until it fits.
+  let mailto = buildMailto(400);
+  if (mailto.length > 1800) mailto = buildMailto(150);
+  if (mailto.length > 1800) mailto = buildMailto(0);
+
+  window.location.href = mailto;
+  if (emails.length) showToast('Email draft opened — check your mail app');
+  else showToast(`Couldn't match '${d.who_decides || '(no deciders)'}' to an email — add the recipient yourself`, 'err');
 }
 
 function openDecisionModal(id) {
