@@ -338,6 +338,22 @@ main {
 .login-card button:active { transform: translateY(1px); }
 .login-card button:disabled { opacity: 0.55; cursor: not-allowed; }
 
+/* Text-style links under the login forms ("Forgot password?" / "Back to sign in") */
+.login-card button.login-link {
+  width: auto;
+  display: block;
+  margin: 14px auto 0;
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--indigo);
+  font-size: 13px;
+  font-weight: 600;
+  text-decoration: underline;
+  cursor: pointer;
+}
+.login-card button.login-link:hover { background: none; color: var(--indigo-deep); }
+
 .login-msg {
   font-size: 13px;
   margin-top: 16px;
@@ -1528,6 +1544,17 @@ footer::before {
   border-color: var(--ok-fg);
 }
 .deliverable-link::before { content: "↗"; font-weight: 700; font-size: 14px; }
+/* file-path deliverable rendered as a copy-to-clipboard button (file:// anchors
+   are silently blocked by browsers on an https page) */
+button.deliverable-copy { cursor: pointer; font-family: var(--font-body); }
+button.deliverable-copy::before { content: "⧉"; }
+/* deliverable with a disallowed scheme — shown as plain text, never a link */
+.deliverable-text {
+  color: var(--fg-muted);
+  font-size: 13px;
+  word-break: break-all;
+  margin-bottom: 18px;
+}
 
 /* =========================================================================
    NOTES BLOCK (full-width, readable) in expandable row
@@ -1729,11 +1756,11 @@ footer::before {
 }
 .card-detail .row-actions button.secondary { background: var(--bg-surface); color: var(--fg-body); border-color: var(--hairline); font-weight: 500; }
 
-/* Intake decision pills */
-.pill-decision-pending  { background: var(--status-backlog-bg); color: var(--status-backlog-fg); }
-.pill-decision-approved { background: var(--status-live-bg);    color: var(--status-live-fg); }
-.pill-decision-deferred { background: var(--status-review-bg);  color: var(--status-review-fg); }
-.pill-decision-rejected { background: var(--danger-bg);         color: var(--danger-fg); }
+/* Intake decision pills (class suffixes = the DB's canonical decision values) */
+.pill-decision-pending { background: var(--status-backlog-bg); color: var(--status-backlog-fg); }
+.pill-decision-approve { background: var(--status-live-bg);    color: var(--status-live-fg); }
+.pill-decision-defer   { background: var(--status-review-bg);  color: var(--status-review-fg); }
+.pill-decision-reject  { background: var(--danger-bg);         color: var(--danger-fg); }
 
 /* Decision urgency pills */
 .pill-urgency-Blocking  { background: var(--danger-bg);        color: var(--danger-fg); }

@@ -38,6 +38,19 @@
       <label for="pw-password">Password</label>
       <input id="pw-password" type="password" required autocomplete="current-password">
       <button type="submit" id="pw-btn">Sign in</button>
+      <button type="button" class="login-link" id="forgot-link">Forgot password?</button>
+    </form>
+
+    <!-- Password reset: email → 6-digit code (our email templates are token-only, no links) -->
+    <form id="reset-form" style="display:none">
+      <label for="reset-email">Email</label>
+      <input id="reset-email" type="email" required placeholder="you@thmmedia.com" autocomplete="email">
+      <div id="reset-code-wrap" style="display:none">
+        <label for="reset-code">6-digit code</label>
+        <input id="reset-code" type="text" inputmode="numeric" maxlength="6" autocomplete="one-time-code" placeholder="123456">
+      </div>
+      <button type="submit" id="reset-btn">Email me a code</button>
+      <button type="button" class="login-link" id="reset-back">Back to sign in</button>
     </form>
 
     <div id="login-msg" class="login-msg" style="display:none"></div>
@@ -104,6 +117,7 @@
         <option value="Low">Low</option>
       </select>
       <button class="btn secondary" id="mine-toggle">My work</button>
+      <button class="btn secondary" id="stale-toggle" title="Projects with no updates in 30+ days">💤 Needs attention</button>
       <button class="btn" id="export-csv">Export CSV</button>
       <button class="btn secondary" id="reset-filters">Reset</button>
     </section>
@@ -146,6 +160,16 @@
         </div>
         <button class="btn" id="new-intake-btn">Submit a project idea</button>
       </div>
+      <section class="filters">
+        <input type="search" id="intake-search" placeholder="Search ideas, problems, submitters…">
+        <select id="intake-status-filter">
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="approve">Approved</option>
+          <option value="defer">Deferred</option>
+          <option value="reject">Rejected</option>
+        </select>
+      </section>
       <div class="result-count" id="intake-count"></div>
       <div id="intake-list" class="card-list"></div>
     </div><!-- /view-intake -->
@@ -159,6 +183,15 @@
         </div>
         <button class="btn" id="new-decision-btn" style="display:none">Add decision</button>
       </div>
+      <section class="filters">
+        <input type="search" id="decisions-search" placeholder="Search decisions, deciders…">
+        <select id="decisions-status-filter">
+          <option value="">All</option>
+          <option value="open">Open</option>
+          <option value="resolved">Resolved</option>
+        </select>
+        <button class="btn" id="export-decisions-csv">Export CSV</button>
+      </section>
       <div class="result-count" id="decisions-count"></div>
       <div id="decisions-list" class="card-list"></div>
     </div><!-- /view-decisions -->
@@ -391,9 +424,9 @@
         <div>
           <label for="id-decision">Decision *</label>
           <select id="id-decision" required>
-            <option value="approved">Approve</option>
-            <option value="deferred">Defer</option>
-            <option value="rejected">Reject</option>
+            <option value="approve">Approve</option>
+            <option value="defer">Defer</option>
+            <option value="reject">Reject</option>
             <option value="pending">Reset to pending</option>
           </select>
         </div>
