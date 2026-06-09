@@ -18,6 +18,8 @@ let audit       = {};       // project_id -> [audit rows]
 let editingId   = null;     // currently-edited project id, or null = new
 let signoffPid  = null;     // project being signed off
 let loadError   = null;     // last fetch error message, or null
+let expandedIds = new Set();    // project ids with the detail row open (survives re-renders)
+let openHistoryIds = new Set(); // project ids with the history panel open
 
 let filterState = {
   search: '', theme: '', status: '', owner: '', priority: '', preset: '', mine: false,
@@ -32,13 +34,27 @@ function escapeHTML(s) {
 }
 function pillClass(status) { return 'pill pill-' + (status || '').replace(/\s/g,''); }
 function scoreClass(score) { return score >= 13 ? 'high' : score >= 9 ? 'med' : 'low'; }
+// Priority goes into a class attribute — validate against the known set so an
+// unexpected value can't break out of the class name.
+function priorityPill(v) {
+  if (!v) return '';
+  const safe = ['High', 'Medium', 'Low'].includes(v) ? v : '';
+  return `<span class="pill${safe ? ' pill-priority-' + safe : ''}">${escapeHTML(v)}</span>`;
+}
 // A deliverable can be a web link OR a file path (incl. an Excel workbook on
 // OneDrive / a local drive). Turn a Windows path into a file:// link so it opens.
+// Only http:, https: and file: are allowed — anything else (javascript:, data:,
+// vbscript:, …) returns null and the caller renders plain text instead.
 function deliverableHref(url) {
-  if (!url) return '';
-  if (/^[A-Za-z]:[\\/]/.test(url)) return 'file:///' + url.replace(/\\/g, '/');
-  if (/^\\\\/.test(url))           return 'file:' + url.replace(/\\/g, '/'); // UNC share
-  return url;
+  if (!url) return null;
+  let href = url;
+  if (/^[A-Za-z]:[\\/]/.test(url)) href = 'file:///' + url.replace(/\\/g, '/');
+  else if (/^\\\\/.test(url))      href = 'file:' + url.replace(/\\/g, '/'); // UNC share
+  try {
+    const proto = new URL(href, location.href).protocol;
+    if (!['http:', 'https:', 'file:'].includes(proto)) return null;
+  } catch (_) { return null; }
+  return href;
 }
 // Label the link by what it points to, so an Excel deliverable doesn't read "View live project".
 function deliverableLabel(url) {
@@ -133,8 +149,36 @@ function formatDate(s) {
 function formatWhen(ts) {
   if (!ts) return '';
   const d = new Date(ts);
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  const opts = { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' };
+  if (d.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+  return d.toLocaleString('en-US', opts);
 }
+// --- Portfolio-depth helpers (health / dependencies / review cadence) ---
+function healthClass(h) { return 'pill pill-health-' + (h || '').replace(/\s/g, ''); }
+// Projects this one depends on that aren't done/dropped = active blockers.
+function blockersFor(p) {
+  if (!p.depends_on || !p.depends_on.length) return [];
+  return p.depends_on
+    .map(id => projects.find(x => x.id === id))
+    .filter(d => d && d.status !== 'Live' && d.status !== 'Cancelled');
+}
+// Render a project's dependencies as chips (open blockers highlighted).
+function depNames(p) {
+  if (!p.depends_on || !p.depends_on.length) return '';
+  return p.depends_on.map(id => {
+    const d = projects.find(x => x.id === id);
+    if (!d) return '';
+    const open = d.status !== 'Live' && d.status !== 'Cancelled';
+    return `<span class="dep ${open ? 'dep-open' : 'dep-done'}">${escapeHTML(d.project_name)}</span>`;
+  }).filter(Boolean).join(' ');
+}
+// "Review due" = active project reviewed once but not in 30+ days (never-reviewed
+// stays quiet so the whole list doesn't light up before the cadence starts).
+function reviewDue(p) {
+  if (p.status === 'Live' || p.status === 'Cancelled' || !p.last_reviewed_at) return false;
+  return (Date.now() - new Date(p.last_reviewed_at).getTime()) > 30 * 86400000;
+}
+
 function renderRiskFlags(arr) {
   if (!arr || !arr.length) return '';
   return arr.map(flag => {
@@ -218,6 +262,13 @@ document.getElementById('password-form').addEventListener('submit', async e => {
         : m);
       return;
     }
+    // Supabase "succeeds" with an obfuscated user (no identities) when the email
+    // already has an account — don't tell them a new account was created.
+    if (up.data.user && Array.isArray(up.data.user.identities) && up.data.user.identities.length === 0) {
+      btn.disabled = false;
+      showMsg('err', "This email already has an account. If you forgot your password, use 'Forgot password?' below.");
+      return;
+    }
     if (!up.data.session) {
       // "Confirm email" is ON in Supabase — they must confirm before first login.
       btn.disabled = false;
@@ -243,6 +294,65 @@ document.getElementById('um-signout').addEventListener('click', async () => {
 // Note: we deliberately don't trigger reload from onAuthStateChange — the
 // password / OTP forms call mountApp() directly after sign-in, and the magic
 // link redirect path is handled by init() reading the URL hash via getSession().
+// The one exception: SIGNED_OUT (expired/revoked session) bounces back to the
+// login screen instead of letting every subsequent write fail silently. We also
+// keep `session` fresh so the pagehide delete-flush always has a valid token.
+sb.auth.onAuthStateChange((event, s) => {
+  if (event === 'TOKEN_REFRESHED' && s) session = s;
+  if (event === 'SIGNED_OUT') location.reload();
+});
+
+// ============================================================================
+// FORGOT PASSWORD (OTP) — email a 6-digit code, verify, then force a new
+// password via the same set-password modal used for temp-password onboarding.
+// (Our Supabase email templates are deliberately token-only — no links.)
+// ============================================================================
+let resetCodeSent = false;
+document.getElementById('forgot-link').addEventListener('click', () => {
+  document.getElementById('password-form').style.display = 'none';
+  document.getElementById('reset-form').style.display = 'block';
+  document.getElementById('reset-email').value = document.getElementById('pw-email').value.trim();
+  document.getElementById('reset-code-wrap').style.display = 'none';
+  document.getElementById('reset-btn').textContent = 'Email me a code';
+  document.getElementById('login-msg').style.display = 'none';
+  resetCodeSent = false;
+});
+document.getElementById('reset-back').addEventListener('click', () => {
+  document.getElementById('reset-form').style.display = 'none';
+  document.getElementById('password-form').style.display = 'block';
+  document.getElementById('login-msg').style.display = 'none';
+});
+document.getElementById('reset-form').addEventListener('submit', async e => {
+  e.preventDefault();
+  const email = document.getElementById('reset-email').value.trim();
+  const btn = document.getElementById('reset-btn');
+  document.getElementById('login-msg').style.display = 'none';
+
+  if (!resetCodeSent) {
+    btn.disabled = true;
+    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
+    btn.disabled = false;
+    if (error) { showMsg('err', error.message); return; }
+    resetCodeSent = true;
+    document.getElementById('reset-code-wrap').style.display = 'block';
+    btn.textContent = 'Verify code';
+    showMsg('ok', 'We emailed you a 6-digit code — enter it above.');
+    setTimeout(() => document.getElementById('reset-code').focus(), 30);
+    return;
+  }
+
+  const token = document.getElementById('reset-code').value.trim();
+  if (!token) { showMsg('err', 'Enter the 6-digit code from the email.'); return; }
+  btn.disabled = true;
+  const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
+  btn.disabled = false;
+  if (error) { showMsg('err', error.message); return; }
+  session = data.session;
+  document.getElementById('login-screen').style.display = 'none';
+  await loadProfile();
+  await mountApp();
+  openPasswordSetup();   // they forgot it — make them set a new one now
+});
 
 // ============================================================================
 // FIRST-LOGIN PASSWORD SETUP
@@ -262,8 +372,21 @@ async function savePasswordSetup(e) {
   if (pw === DEFAULT_TEMP_PW){ err.textContent = 'Please choose a password different from the temporary one.'; err.style.display = 'block'; return; }
   if (pw !== pw2)           { err.textContent = 'Those passwords don\'t match.'; err.style.display = 'block'; return; }
   const { error } = await sb.auth.updateUser({ password: pw });
-  if (error) { err.textContent = error.message; err.style.display = 'block'; return; }
-  await sb.rpc('mark_password_set');
+  // "Same as old password" can happen on a retry after a failed mark_password_set
+  // — the password itself is fine, so carry on to the RPC.
+  if (error && !/different from the old/i.test(error.message || '')) {
+    err.textContent = error.message; err.style.display = 'block'; return;
+  }
+  // If this RPC fails, profiles.password_set stays false and the locked modal
+  // would come back forever — retry once, then surface an actionable error.
+  let { error: rpcErr } = await sb.rpc('mark_password_set');
+  if (rpcErr) ({ error: rpcErr } = await sb.rpc('mark_password_set'));
+  if (rpcErr) {
+    err.textContent = `Password saved, but we couldn't finish account setup (${rpcErr.message}). Click the button again to retry.`;
+    err.style.display = 'block';
+    showToast("Couldn't finish account setup — try again or ping Masen/Angus.", 'err');
+    return;
+  }
   if (profile) profile.password_set = true;
   dismissModal(document.getElementById('password-modal'));
   showToast('Password set — you\'re all set!');
@@ -289,6 +412,7 @@ async function mountApp() {
   renderSkeleton();
   await Promise.all([fetchProjects(), fetchSignoffs(), fetchIntake(), fetchDecisions()]);
   loadFilters();
+  loadView();                    // restore last-used tab (URL still wins below)
   const urlOpenId = readURL();   // URL overrides saved filters/tab for shareable links
   populateFilters();
   applyFilterUI();
@@ -296,6 +420,10 @@ async function mountApp() {
   render();
   renderIntake();
   renderDecisions();
+  // Tell non-admins why a deep link to an admin view dumped them on Intake.
+  if (!admin && new URLSearchParams(location.search).get('v') && currentView !== 'intake') {
+    showToast('That view is admin-only — your account has intake access.', 'err');
+  }
   showView(admin ? currentView : 'intake');   // honor ?v= (admins) / force intake (viewers)
   subscribeRealtime();
   // Deep link to a specific project (?p=ID)
@@ -303,7 +431,7 @@ async function mountApp() {
     setTimeout(() => {
       const row = document.querySelector(`.main-row[data-id="${urlOpenId}"]`);
       const ex = document.querySelector(`.expandable-row[data-for="${urlOpenId}"]`);
-      if (row) { deepOpenId = urlOpenId; row.scrollIntoView({ block: 'center' }); if (ex) { ex.classList.add('open'); row.setAttribute('aria-expanded', 'true'); } }
+      if (row) { deepOpenId = urlOpenId; row.scrollIntoView({ block: 'center' }); if (ex) { ex.classList.add('open'); row.setAttribute('aria-expanded', 'true'); expandedIds.add(urlOpenId); } }
     }, 80);
   }
   // First-time users: prompt to set a password (admins already have password_set=true).
@@ -377,6 +505,7 @@ function presetMatch(preset, p) {
     case 'inprogress': return p.status === 'In Progress' || p.status === 'In Review';
     case 'queued':     return p.status === 'Backlog' || p.status === 'Discovery';
     case 'attention':  return isOverdue(p) || (p.priority === 'High' && p.status !== 'Live' && p.status !== 'Cancelled');
+    case 'stale':      return isStale(p);
     default:           return true;
   }
 }
@@ -385,8 +514,12 @@ function filterProjects() {
   return projects.filter(p => {
     if (filterState.preset && !presetMatch(filterState.preset, p)) return false;
     if (filterState.mine) {
+      // Loose match either direction so "Angus" matches "Angus M" and vice versa.
       const me = (profile?.display_name || '').toLowerCase();
-      if (!(p.owners || []).some(o => o.toLowerCase() === me)) return false;
+      if (!me || !(p.owners || []).some(o => {
+        const n = o.toLowerCase();
+        return n.includes(me) || me.includes(n);
+      })) return false;
     }
     if (filterState.theme    && p.theme !== filterState.theme)   return false;
     if (filterState.status   && p.status !== filterState.status) return false;
@@ -446,6 +579,7 @@ function renderKPIs() {
       render();
     });
   });
+  document.getElementById('stale-toggle').classList.toggle('active', filterState.preset === 'stale');
   document.getElementById('header-meta').textContent =
     `${projects.length} projects · ${live} live · ${inProg} in progress`;
   if (!kpisAnimated && projects.length) { animateCounts(); kpisAnimated = true; }
@@ -453,6 +587,12 @@ function renderKPIs() {
 
 function signoffsFor(pid) {
   return signoffs.filter(s => s.project_id === pid);
+}
+
+// Nudge before a status change to Live when no project_ship sign-off exists.
+function confirmLiveWithoutSignoff(pid) {
+  if (signoffsFor(pid).some(s => s.signoff_type === 'project_ship')) return true;
+  return confirm('Going live without a leadership sign-off — proceed?');
 }
 
 function renderTable() {
@@ -480,14 +620,19 @@ function renderTable() {
     const pct = Math.round((p.progress || 0) * 100);
     const sos = signoffsFor(p.id);
     const sosBlock = sos.length
-      ? `<div class="signoffs">${sos.map(s => `<span class="signoff">✓ ${escapeHTML(s.signed_by_name)} (${s.role}) · ${formatWhen(s.signed_at)}</span>`).join('')}</div>`
+      ? `<div class="signoffs">${sos.map(s => `<span class="signoff">✓ ${escapeHTML(s.signed_by_name)} (${escapeHTML(s.role)}) · ${formatWhen(s.signed_at)}</span>`).join('')}</div>`
       : '';
     const priorityCell =
-      (p.priority ? `<span class="pill pill-priority-${p.priority}">${escapeHTML(p.priority)}</span>` : '') +
-      `<div class="priority-score" title="Priority score = Impact + Ease + Strategic Fit, each rated 1–5">${p.score}/15</div>`;
-    const deliverableBlock = p.deliverable_url
-      ? `<div><a class="deliverable-link" href="${escapeHTML(deliverableHref(p.deliverable_url))}" target="_blank" rel="noopener noreferrer">${deliverableLabel(p.deliverable_url)}</a></div>`
-      : '';
+      priorityPill(p.priority) +
+      `<div class="priority-score" title="Priority score = Impact + Ease + Strategic Fit, each rated 1–5">${p.score == null ? '—' : p.score + '/15'}</div>`;
+    const dHref = deliverableHref(p.deliverable_url);
+    const deliverableBlock = !p.deliverable_url ? ''
+      // file:// links are silently blocked on an https page — offer copy-path instead
+      : (dHref && dHref.startsWith('file:'))
+        ? `<div><button type="button" class="deliverable-link deliverable-copy" data-copy="${escapeHTML(p.deliverable_url)}">Copy file path</button></div>`
+      : dHref
+        ? `<div><a class="deliverable-link" href="${escapeHTML(dHref)}" target="_blank" rel="noopener noreferrer">${deliverableLabel(p.deliverable_url)}</a></div>`
+        : `<div class="deliverable-text">${escapeHTML(p.deliverable_url)}</div>`;
     const notesBlock = p.notes
       ? `<div class="notes-block">
            <div class="field-label">Notes / Open Questions</div>
@@ -497,11 +642,12 @@ function renderTable() {
     const rowMarkers =
       (p.deliverable_url ? ` <span class="row-marker deliv" title="${escapeHTML(deliverableLabel(p.deliverable_url))}">↗</span>` : '') +
       (sos.length ? ` <span class="row-marker signed" title="Signed off (${sos.length})">✓</span>` : '') +
-      (isStale(p) ? ` <span class="row-marker stale" title="No updates in 30+ days">💤</span>` : '');
+      (isStale(p) ? ` <span class="row-marker stale" title="No updates in 30+ days">💤</span>` : '') +
+      (blockersFor(p).length ? ` <span class="row-marker blocked" title="Blocked by ${blockersFor(p).length} unfinished dependency">⛔</span>` : '');
     return `
       <tr data-id="${p.id}" class="main-row" tabindex="0" aria-expanded="false">
         <td class="project-name" style="box-shadow: inset 3px 0 0 ${themeColor(p.theme)}">
-          <div class="project-line"><span class="caret" aria-hidden="true">›</span>${escapeHTML(p.project_name)}${rowMarkers}</div>
+          <div class="project-line"><span class="caret" aria-hidden="true">›</span>${p.health ? `<span class="health-dot health-${p.health.replace(/\s/g, '')}" title="${escapeHTML(p.health)}"></span>` : ''}${escapeHTML(p.project_name)}${rowMarkers}</div>
           ${p.theme ? `<div class="project-theme" style="color:${themeColor(p.theme)}">${escapeHTML(p.theme)}</div>` : ''}
         </td>
         <td class="status-cell"${isAdmin() ? ' title="Click to change status"' : ''}>${statusPill(p.status)}</td>
@@ -518,12 +664,15 @@ function renderTable() {
           <div class="desc">${escapeHTML(p.description || '—')}</div>
           ${deliverableBlock}
           <div class="grid">
-            <div><div class="field-label">Priority</div><div class="field-value">${p.priority ? `<span class="pill pill-priority-${p.priority}">${escapeHTML(p.priority)}</span>` : '—'}</div></div>
+            <div><div class="field-label">Priority</div><div class="field-value">${priorityPill(p.priority) || '—'}</div></div>
             <div><div class="field-label">Owner</div><div class="field-value">${(p.owners && p.owners.length) ? escapeHTML(p.owners.join(', ')) : '—'}</div></div>
             <div><div class="field-label">Target</div><div class="field-value">${p.target_date ? formatDate(p.target_date) : '—'}</div></div>
             <div><div class="field-label">Success Metric</div><div class="field-value">${escapeHTML(p.success_metric || '—')}</div></div>
             <div><div class="field-label">Risk Flags</div><div class="field-value">${renderRiskFlags(p.risk_flags) || '—'}</div></div>
             <div><div class="field-label">Updated</div><div class="field-value">${formatWhen(p.updated_at)}</div></div>
+            <div><div class="field-label">Health</div><div class="field-value">${p.health ? `<span class="${healthClass(p.health)}">${escapeHTML(p.health)}</span>` : '—'}</div></div>
+            <div><div class="field-label">Depends on</div><div class="field-value">${depNames(p) || '—'}</div></div>
+            <div><div class="field-label">Last reviewed</div><div class="field-value">${p.last_reviewed_at ? formatWhen(p.last_reviewed_at) + (reviewDue(p) ? ` <span class="review-due">· review due</span>` : '') : 'Not yet reviewed'}</div></div>
           </div>
           ${(p.risk_tier || p.data_handled || p.human_in_the_loop || p.rollback_plan) ? `
           <div class="gov-block">
@@ -540,6 +689,7 @@ function renderTable() {
             <div class="row-actions">
               <button data-action="edit"    data-id="${p.id}">Edit</button>
               <button data-action="signoff" data-id="${p.id}" class="secondary">Sign off</button>
+              <button data-action="review"  data-id="${p.id}" class="secondary">Mark reviewed</button>
               <button data-action="history" data-id="${p.id}" class="secondary">View history</button>
             </div>` : `
             <div class="row-actions">
@@ -555,8 +705,13 @@ function renderTable() {
 
   tbody.querySelectorAll('.main-row').forEach(row => {
     const toggle = () => {
-      const ex = tbody.querySelector(`.expandable-row[data-for="${row.dataset.id}"]`);
-      if (ex) row.setAttribute('aria-expanded', ex.classList.toggle('open') ? 'true' : 'false');
+      const id = row.dataset.id;
+      const ex = tbody.querySelector(`.expandable-row[data-for="${id}"]`);
+      if (!ex) return;
+      const open = ex.classList.toggle('open');
+      row.setAttribute('aria-expanded', open ? 'true' : 'false');
+      if (open) expandedIds.add(id);
+      else { expandedIds.delete(id); openHistoryIds.delete(id); }
     };
     row.addEventListener('click', e => {
       if (e.target.closest('button') || e.target.closest('.status-cell') || e.target.closest('.owner-cell')
@@ -588,9 +743,61 @@ function renderTable() {
       const action = btn.dataset.action;
       if (action === 'edit')    openProjectModal(id);
       if (action === 'signoff') openSignoffModal(id);
+      if (action === 'review')  markReviewed(id);
       if (action === 'history') toggleHistory(id);
     });
   });
+
+  // file-path deliverables: copy to clipboard (file:// anchors are dead on https)
+  tbody.querySelectorAll('.deliverable-copy').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      navigator.clipboard.writeText(btn.dataset.copy)
+        .then(() => showToast('File path copied'))
+        .catch(() => showToast("Couldn't copy the path", 'err'));
+    });
+  });
+
+  // Re-apply expansion + open history panels so re-renders (incl. realtime
+  // events from other users) don't collapse what someone is reading.
+  expandedIds.forEach(id => {
+    const ex = tbody.querySelector(`.expandable-row[data-for="${id}"]`);
+    const row = tbody.querySelector(`.main-row[data-id="${id}"]`);
+    if (ex && row) { ex.classList.add('open'); row.setAttribute('aria-expanded', 'true'); }
+  });
+  openHistoryIds.forEach(id => {
+    const box = tbody.querySelector(`[data-audit-for="${id}"]`);
+    if (box) { box.style.display = 'block'; loadHistoryInto(box, id); }
+  });
+}
+
+async function markReviewed(id) {
+  if (!isAdmin()) return;
+  const p = projects.find(x => x.id === id);
+  if (!p) return;
+  const ts = new Date().toISOString();
+  p.last_reviewed_at = ts;   // optimistic
+  render();
+  const { error } = await sb.from('ai_projects').update({ last_reviewed_at: ts }).eq('id', id);
+  if (error) showToast("Couldn't mark reviewed: " + error.message, 'err');
+  else showToast('Marked reviewed');
+}
+
+async function loadHistoryInto(box, pid) {
+  const entries = box.querySelector('.entries');
+  entries.textContent = 'Loading…';
+  const rows = await fetchAudit(pid);
+  if (!rows.length) {
+    entries.innerHTML = '<div class="entry" style="color:var(--fg-faint)">No changes recorded yet.</div>';
+  } else {
+    entries.innerHTML = rows.map(r => `
+      <div class="entry">
+        <strong>${escapeHTML(r.changed_by_name || 'unknown')}</strong>
+        changed <strong>${escapeHTML(r.field_name)}</strong>:
+        ${escapeHTML(r.old_value ?? '—')} → ${escapeHTML(r.new_value ?? '—')}
+        <span class="when">${formatWhen(r.changed_at)}</span>
+      </div>`).join('');
+  }
 }
 
 async function toggleHistory(pid) {
@@ -598,22 +805,11 @@ async function toggleHistory(pid) {
   if (!box) return;
   if (box.style.display === 'none') {
     box.style.display = 'block';
-    const entries = box.querySelector('.entries');
-    entries.textContent = 'Loading…';
-    const rows = await fetchAudit(pid);
-    if (!rows.length) {
-      entries.innerHTML = '<div class="entry" style="color:var(--fg-faint)">No changes recorded yet.</div>';
-    } else {
-      entries.innerHTML = rows.map(r => `
-        <div class="entry">
-          <strong>${escapeHTML(r.changed_by_name || 'unknown')}</strong>
-          changed <strong>${escapeHTML(r.field_name)}</strong>:
-          ${escapeHTML(r.old_value ?? '—')} → ${escapeHTML(r.new_value ?? '—')}
-          <span class="when">${formatWhen(r.changed_at)}</span>
-        </div>`).join('');
-    }
+    openHistoryIds.add(pid);
+    await loadHistoryInto(box, pid);
   } else {
     box.style.display = 'none';
+    openHistoryIds.delete(pid);
   }
 }
 
@@ -624,7 +820,7 @@ function render() {
 }
 
 // Inline status editing: click a status pill in the table to pick a new status.
-function closeStatusMenu() { const m = document.getElementById('status-menu'); if (m) m.remove(); }
+function closeStatusMenu() { const m = document.getElementById('status-menu'); if (m) m.remove(); teardownInlineListeners(); }
 function openStatusMenu(id, anchor) {
   closeAllInlineMenus();
   const p = projects.find(x => x.id === id);
@@ -643,25 +839,28 @@ function openStatusMenu(id, anchor) {
     e.stopPropagation();
     const ns = b.dataset.s;
     closeStatusMenu();
-    if (ns === p.status) return;
-    const prev = p.status;
+    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
+    const cur = projects.find(x => x.id === id);
+    if (!cur || ns === cur.status) return;
+    const prev = cur.status;
     const wentLive = ns === 'Live' && prev !== 'Live';
-    p.status = ns;                 // optimistic
+    if (wentLive && !confirmLiveWithoutSignoff(id)) return;
+    cur.status = ns;               // optimistic
     render();
     const { error } = await sb.from('ai_projects').update({ status: ns, updated_by: profile.id }).eq('id', id);
-    if (error) { p.status = prev; render(); showToast("Couldn't update status", 'err'); return; }
-    showToast(wentLive ? '🎉 ' + p.project_name + ' is now live!' : 'Status updated');
+    if (error) {
+      const roll = projects.find(x => x.id === id);
+      if (roll) roll.status = prev;
+      render(); showToast("Couldn't update status", 'err'); return;
+    }
+    showToast(wentLive ? '🎉 ' + cur.project_name + ' is now live!' : 'Status updated');
     if (wentLive) fireConfetti();
   }));
-  // close on next outside click / escape
-  setTimeout(() => {
-    document.addEventListener('click', closeStatusMenu, { once: true });
-    document.addEventListener('keydown', function esc(ev) { if (ev.key === 'Escape') { closeStatusMenu(); document.removeEventListener('keydown', esc); } });
-  }, 0);
+  closeInlineOnOutside(closeStatusMenu);
 }
 
 // Inline progress editing: click a progress bar in the table to drag a slider.
-function closeProgressMenu() { const m = document.getElementById('progress-menu'); if (m) m.remove(); }
+function closeProgressMenu() { const m = document.getElementById('progress-menu'); if (m) m.remove(); teardownInlineListeners(); }
 function openProgressMenu(id, anchor) {
   closeAllInlineMenus();
   const p = projects.find(x => x.id === id);
@@ -685,17 +884,21 @@ function openProgressMenu(id, anchor) {
     const val = Number(range.value);
     closeProgressMenu();
     if (val === cur) return;
-    const prev = p.progress;
-    p.progress = val / 100;          // optimistic
+    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
+    const proj = projects.find(x => x.id === id);
+    if (!proj) return;
+    const prev = proj.progress;
+    proj.progress = val / 100;       // optimistic
     render();
     const { error } = await sb.from('ai_projects').update({ progress: val / 100, updated_by: profile.id }).eq('id', id);
-    if (error) { p.progress = prev; render(); showToast("Couldn't update progress", 'err'); return; }
+    if (error) {
+      const roll = projects.find(x => x.id === id);
+      if (roll) roll.progress = prev;
+      render(); showToast("Couldn't update progress", 'err'); return;
+    }
     showToast(`Progress set to ${val}%`);
   });
-  setTimeout(() => {
-    document.addEventListener('click', closeProgressMenu, { once: true });
-    document.addEventListener('keydown', function esc(ev) { if (ev.key === 'Escape') { closeProgressMenu(); document.removeEventListener('keydown', esc); } });
-  }, 0);
+  closeInlineOnOutside(closeProgressMenu);
   setTimeout(() => range.focus(), 10);
 }
 
@@ -705,15 +908,36 @@ function positionMenu(menu, anchor) {
   menu.style.top = (r.bottom + window.scrollY + 6) + 'px';
   menu.style.left = (r.left + window.scrollX) + 'px';
 }
+// Document-level listeners (outside click + Escape) for the open inline menu.
+// Tracked in one teardown so EVERY close path removes them — outside click,
+// Escape, or an action being selected — instead of leaking keydown listeners.
+let _inlineTeardown = null;
+function teardownInlineListeners() {
+  if (_inlineTeardown) _inlineTeardown();
+}
 function closeInlineOnOutside(closeFn) {
-  setTimeout(() => {
-    document.addEventListener('click', closeFn, { once: true });
-    document.addEventListener('keydown', function esc(ev) { if (ev.key === 'Escape') { closeFn(); document.removeEventListener('keydown', esc); } });
+  teardownInlineListeners();   // only one inline menu is open at a time
+  let attached = false, torn = false;
+  const onClick = () => closeFn();
+  const onKey = ev => { if (ev.key === 'Escape') closeFn(); };
+  _inlineTeardown = () => {
+    torn = true;
+    if (attached) {
+      document.removeEventListener('click', onClick);
+      document.removeEventListener('keydown', onKey);
+    }
+    _inlineTeardown = null;
+  };
+  setTimeout(() => {       // defer so the opening click doesn't immediately close
+    if (torn) return;
+    document.addEventListener('click', onClick);
+    document.addEventListener('keydown', onKey);
+    attached = true;
   }, 0);
 }
 
 // Inline owner editing: click the owner cell to toggle owners from a dropdown.
-function closeOwnerMenu() { const m = document.getElementById('owner-menu'); if (m) m.remove(); }
+function closeOwnerMenu() { const m = document.getElementById('owner-menu'); if (m) m.remove(); teardownInlineListeners(); }
 function openOwnerMenu(id, anchor) {
   closeAllInlineMenus();
   const p = projects.find(x => x.id === id);
@@ -735,24 +959,31 @@ function openOwnerMenu(id, anchor) {
   menu.addEventListener('click', e => e.stopPropagation());
   menu.querySelectorAll('.om-item').forEach(b => b.addEventListener('click', async () => {
     const name = b.dataset.o;
-    const set = new Set(p.owners || []);
+    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
+    const cur = projects.find(x => x.id === id);
+    if (!cur) return;
+    const set = new Set(cur.owners || []);
     set.has(name) ? set.delete(name) : set.add(name);
     const next = [...set];
-    const prev = p.owners;
-    p.owners = next;
+    const prev = cur.owners;
+    cur.owners = next;
     const nowOn = set.has(name);
     b.classList.toggle('cur', nowOn);
     const svg = b.querySelector('.ic'); if (svg) svg.remove();
     b.insertAdjacentHTML('afterbegin', ic(nowOn ? 'check' : 'circle'));
     render();
     const { error } = await sb.from('ai_projects').update({ owners: next, updated_by: profile.id }).eq('id', id);
-    if (error) { p.owners = prev; render(); showToast("Couldn't update owners", 'err'); }
+    if (error) {
+      const roll = projects.find(x => x.id === id);
+      if (roll) roll.owners = prev;
+      render(); showToast("Couldn't update owners", 'err');
+    }
   }));
   closeInlineOnOutside(closeOwnerMenu);
 }
 
 // Inline target-date editing: click the target cell to pick a date.
-function closeDateMenu() { const m = document.getElementById('date-menu'); if (m) m.remove(); }
+function closeDateMenu() { const m = document.getElementById('date-menu'); if (m) m.remove(); teardownInlineListeners(); }
 function openDateMenu(id, anchor) {
   closeAllInlineMenus();
   const p = projects.find(x => x.id === id);
@@ -770,12 +1001,18 @@ function openDateMenu(id, anchor) {
   const input = menu.querySelector('#dm-date');
   const commit = async (val) => {
     closeDateMenu();
-    if ((val || '') === (p.target_date || '')) return;
-    const prev = p.target_date;
-    p.target_date = val || null;
+    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
+    const cur = projects.find(x => x.id === id);
+    if (!cur || (val || '') === (cur.target_date || '')) return;
+    const prev = cur.target_date;
+    cur.target_date = val || null;
     render();
     const { error } = await sb.from('ai_projects').update({ target_date: val || null, updated_by: profile.id }).eq('id', id);
-    if (error) { p.target_date = prev; render(); showToast("Couldn't update target", 'err'); return; }
+    if (error) {
+      const roll = projects.find(x => x.id === id);
+      if (roll) roll.target_date = prev;
+      render(); showToast("Couldn't update target", 'err'); return;
+    }
     showToast(val ? 'Target set to ' + formatDate(val) : 'Target cleared');
   };
   input.addEventListener('change', () => commit(input.value));
@@ -787,10 +1024,11 @@ function openDateMenu(id, anchor) {
 function closeAllInlineMenus() {
   ['status-menu', 'progress-menu', 'owner-menu', 'date-menu', 'priority-menu']
     .forEach(id => { const m = document.getElementById(id); if (m) m.remove(); });
+  teardownInlineListeners();
 }
 
 // Inline priority editing: click the priority cell to set High / Medium / Low / none.
-function closePriorityMenu() { const m = document.getElementById('priority-menu'); if (m) m.remove(); }
+function closePriorityMenu() { const m = document.getElementById('priority-menu'); if (m) m.remove(); teardownInlineListeners(); }
 function openPriorityMenu(id, anchor) {
   closeAllInlineMenus();
   const p = projects.find(x => x.id === id);
@@ -811,12 +1049,18 @@ function openPriorityMenu(id, anchor) {
   menu.querySelectorAll('.om-item').forEach(b => b.addEventListener('click', async () => {
     const v = b.dataset.v;
     closePriorityMenu();
-    if ((p.priority || '') === v) return;
-    const prev = p.priority;
-    p.priority = v || null;
+    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
+    const cur = projects.find(x => x.id === id);
+    if (!cur || (cur.priority || '') === v) return;
+    const prev = cur.priority;
+    cur.priority = v || null;
     render();
     const { error } = await sb.from('ai_projects').update({ priority: v || null, updated_by: profile.id }).eq('id', id);
-    if (error) { p.priority = prev; render(); showToast("Couldn't update priority", 'err'); return; }
+    if (error) {
+      const roll = projects.find(x => x.id === id);
+      if (roll) roll.priority = prev;
+      render(); showToast("Couldn't update priority", 'err'); return;
+    }
     showToast(v ? 'Priority set to ' + v : 'Priority cleared');
   }));
   closeInlineOnOutside(closePriorityMenu);
@@ -909,11 +1153,13 @@ function renderInsights() {
   const unowned = projects.filter(p => (!p.owners || !p.owners.length) && !dead(p.status));
   const inFlight = active.filter(p => !live(p.status));
   const avg = inFlight.length ? Math.round(inFlight.reduce((s, p) => s + (p.progress || 0), 0) / inFlight.length * 100) : 0;
+  const atRisk = active.filter(p => p.health === 'At Risk' || p.health === 'Off Track').length;
 
   const stats = [
     { n: active.length,    label: 'Active',                tone: 'total' },
     { n: launching.length, label: 'Launching this month',  tone: 'progress' },
     { n: attention.length, label: 'Needs attention',       tone: 'attn',  alert: attention.length > 0 },
+    { n: atRisk,           label: 'At risk / off track',   tone: 'attn',  alert: atRisk > 0 },
     { n: unowned.length,   label: 'Unowned',               tone: 'queue', alert: unowned.length > 0 },
     { n: avg + '%',        label: 'Avg progress',          tone: 'live' },
   ];
@@ -930,6 +1176,33 @@ function renderInsights() {
         `<div class="bar-row"><span class="bar-label">${escapeHTML(t)}</span><span class="bar-track"><span class="bar-fill" style="width:${(n / max * 100).toFixed(0)}%;background:${themeColor(t)}"></span></span><span class="bar-count">${n}</span></div>`
       ).join('')
     : '<div class="act-empty">No projects yet.</div>';
+
+  renderRoadmap();
+}
+
+// Roadmap — projects grouped by the quarter of their target date. Pure DOM, no lib.
+function renderRoadmap() {
+  const el = document.getElementById('roadmap');
+  if (!el) return;
+  const dead = s => s === 'Cancelled';
+  const dated = projects.filter(p => p.target_date && !dead(p.status));
+  const unscheduled = projects.filter(p => !p.target_date && !dead(p.status) && p.status !== 'Live').length;
+  const unschedNote = unscheduled
+    ? `<div class="road-unscheduled">+ ${unscheduled} active project${unscheduled !== 1 ? 's' : ''} with no target date</div>` : '';
+  if (!dated.length) {
+    el.innerHTML = `<div class="act-empty">No target dates set yet.</div>${unschedNote}`;
+    return;
+  }
+  const quarter = d => { const dt = new Date(d + 'T12:00:00'); return dt.getFullYear() + ' Q' + (Math.floor(dt.getMonth() / 3) + 1); };
+  const groups = {};
+  dated.forEach(p => { const k = quarter(p.target_date); (groups[k] = groups[k] || []).push(p); });
+  el.innerHTML = Object.keys(groups).sort().map(k => `
+    <div class="road-row">
+      <div class="road-q">${escapeHTML(k)}</div>
+      <div class="road-items">${groups[k]
+        .slice().sort((a, b) => a.target_date.localeCompare(b.target_date))
+        .map(p => `<span class="road-item${isOverdue(p) ? ' overdue' : ''}${p.status === 'Live' ? ' live' : ''}" title="${escapeHTML(p.project_name)} · ${formatDate(p.target_date)}${p.status === 'Live' ? ' · Live' : (isOverdue(p) ? ' · overdue' : '')}">${escapeHTML(p.project_name)}</span>`).join('')}</div>
+    </div>`).join('') + unschedNote;
 }
 
 // Slim stacked status bar under the KPIs — shows the whole pipeline at a glance.
@@ -1008,6 +1281,20 @@ function loadFilters() {
     const s = JSON.parse(localStorage.getItem(FILTER_KEY) || 'null');
     if (s && typeof s === 'object') filterState = { ...filterState, ...s };
   } catch (_) {}
+  // Clear gracefully if stored values reference options that no longer exist.
+  const sortable = ['project_name', 'status', 'owners', 'progress', 'target_date', 'score', 'priority'];
+  if (!sortable.includes(filterState.sortBy)) { filterState.sortBy = 'score'; filterState.sortDir = 'desc'; }
+  if (!['asc', 'desc'].includes(filterState.sortDir)) filterState.sortDir = 'desc';
+  if (!['', 'live', 'inprogress', 'queued', 'attention', 'stale'].includes(filterState.preset)) filterState.preset = '';
+}
+
+// --- Active-tab persistence (URL ?v= still wins — see mountApp) ---
+const VIEW_KEY = 'thm_ai_view_v1';
+function loadView() {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    if (['projects', 'intake', 'decisions', 'insights'].includes(v)) currentView = v;
+  } catch (_) {}
 }
 function applyFilterUI() {
   document.getElementById('search').value = filterState.search || '';
@@ -1078,7 +1365,7 @@ function attachEvents() {
     filterState = { search: '', theme: '', status: '', owner: '', priority: '', preset: '', mine: false, sortBy: 'score', sortDir: 'desc' };
     document.getElementById('search').value = '';
     ['theme','status','owner','priority'].forEach(k => document.getElementById(k + '-filter').value = '');
-    document.querySelectorAll('.vt-btn, #mine-toggle').forEach(b => b.classList && b.classList.remove('active'));
+    document.querySelectorAll('.vt-btn, #mine-toggle, #stale-toggle').forEach(b => b.classList && b.classList.remove('active'));
     saveFilters();
     updateSortIndicators();
     render();
@@ -1087,6 +1374,13 @@ function attachEvents() {
   document.getElementById('mine-toggle').addEventListener('click', () => {
     filterState.mine = !filterState.mine;
     document.getElementById('mine-toggle').classList.toggle('active', filterState.mine);
+    saveFilters();
+    render();
+  });
+  document.getElementById('stale-toggle').addEventListener('click', () => {
+    filterState.preset = filterState.preset === 'stale' ? '' : 'stale';
+    filterState.status = '';   // a preset owns the status dropdown
+    document.getElementById('status-filter').value = '';
     saveFilters();
     render();
   });
@@ -1118,6 +1412,35 @@ function attachEvents() {
   document.getElementById('decision-form').addEventListener('submit', e => { e.preventDefault(); saveDecision(false); });
   document.getElementById('decision-resolve').addEventListener('click', () => saveDecision(true));
   document.getElementById('decision-delete').addEventListener('click', deleteDecision);
+  // Email draft modal (decisions → "Draft email")
+  document.getElementById('em-cancel').addEventListener('click', () => dismissModal(document.getElementById('email-modal')));
+  document.getElementById('em-form').addEventListener('submit', e => { e.preventDefault(); openEmailDraftInMailApp(); });
+  document.getElementById('em-copy').addEventListener('click', copyEmailDraft);
+  // Intake + Decisions list controls (client-side search / status filter / export)
+  let intakeSearchTimer;
+  document.getElementById('intake-search').addEventListener('input', e => {
+    const v = e.target.value;
+    clearTimeout(intakeSearchTimer);
+    intakeSearchTimer = setTimeout(() => { intakeFilter.search = v; renderIntake(); }, 160);
+  });
+  document.getElementById('intake-status-filter').addEventListener('change', e => {
+    intakeFilter.status = e.target.value;
+    renderIntake();
+  });
+  let decisionsSearchTimer;
+  document.getElementById('decisions-search').addEventListener('input', e => {
+    const v = e.target.value;
+    clearTimeout(decisionsSearchTimer);
+    decisionsSearchTimer = setTimeout(() => { decisionsFilter.search = v; renderDecisions(); }, 160);
+  });
+  document.getElementById('decisions-status-filter').addEventListener('change', e => {
+    decisionsFilter.status = e.target.value;
+    renderDecisions();
+  });
+  document.getElementById('export-decisions-csv').addEventListener('click', exportDecisionsCSV);
+  // Dirty tracking for the two data-entry modals — one input listener each.
+  document.getElementById('project-form').addEventListener('input', () => { modalDirty['project-modal'] = true; });
+  document.getElementById('intake-form').addEventListener('input', () => { modalDirty['intake-modal'] = true; });
   // First-login password setup (required — no skip)
   document.getElementById('password-setup-form').addEventListener('submit', savePasswordSetup);
   // User menu (folds theme / activity / ask / sign-out)
@@ -1188,7 +1511,7 @@ function attachEvents() {
   const TAB_ICON = { projects: 'table', intake: 'inbox', decisions: 'flag', insights: 'chart' };
   document.querySelectorAll('.viewtab').forEach(t => t.insertAdjacentHTML('afterbegin', ic(TAB_ICON[t.dataset.view] || 'grid')));
   [['new-project-btn','plus'],['new-decision-btn','plus'],['new-intake-btn','plus'],
-   ['export-csv','download'],['reset-filters','reset'],
+   ['export-csv','download'],['export-decisions-csv','download'],['reset-filters','reset'],
    ['um-ask','sparkle'],['um-activity','clock'],['um-signout','logout']].forEach(([id, name]) => {
     const el = document.getElementById(id); if (el) el.insertAdjacentHTML('afterbegin', ic(name));
   });
@@ -1200,6 +1523,14 @@ function attachEvents() {
 // MODAL PLUMBING (focus, Esc, backdrop-click, scroll-lock) — shared
 // ============================================================================
 let lastFocused = null;
+// Dirty flags for data-entry modals — set by an 'input' listener (attachEvents),
+// reset on open/save. Backdrop-click / Escape confirm before discarding edits.
+let modalDirty = { 'project-modal': false, 'intake-modal': false };
+function confirmDiscard(bd) {
+  if (!modalDirty[bd.id]) return true;
+  if (confirm('Discard your changes?')) { modalDirty[bd.id] = false; return true; }
+  return false;
+}
 function openModal(backdrop) {
   lastFocused = document.activeElement;
   backdrop.classList.add('open');
@@ -1214,12 +1545,12 @@ function dismissModal(backdrop) {
 }
 function initModals() {
   document.querySelectorAll('.modal-backdrop').forEach(bd => {
-    bd.addEventListener('mousedown', e => { if (e.target === bd && !bd.dataset.locked) dismissModal(bd); });
+    bd.addEventListener('mousedown', e => { if (e.target === bd && !bd.dataset.locked && confirmDiscard(bd)) dismissModal(bd); });
   });
   document.addEventListener('keydown', e => {
     const open = document.querySelector('.modal-backdrop.open');
     if (!open) return;
-    if (e.key === 'Escape') { if (!open.dataset.locked) dismissModal(open); return; }
+    if (e.key === 'Escape') { if (!open.dataset.locked && confirmDiscard(open)) dismissModal(open); return; }
     if (e.key === 'Tab') {
       const f = [...open.querySelectorAll('input, select, textarea, button')]
         .filter(el => !el.disabled && el.offsetParent !== null);
@@ -1265,8 +1596,17 @@ function openProjectModal(id) {
   fld('data_handled',      p?.data_handled);
   fld('human_in_the_loop', p?.human_in_the_loop);
   fld('rollback_plan',     p?.rollback_plan);
+  fld('health',        p?.health || '');
+  // Populate the depends-on picker with every other project; select current deps.
+  const cur = new Set(p?.depends_on || []);
+  document.getElementById('f-depends_on').innerHTML = projects
+    .filter(x => x.id !== id)
+    .slice().sort((a, b) => a.project_name.localeCompare(b.project_name))
+    .map(x => `<option value="${x.id}"${cur.has(x.id) ? ' selected' : ''}>${escapeHTML(x.project_name)}</option>`)
+    .join('');
   fld('notes',         p?.notes);
   document.getElementById('modal-err').style.display = 'none';
+  modalDirty['project-modal'] = false;
   openModal(document.getElementById('project-modal'));
 }
 
@@ -1279,6 +1619,7 @@ async function saveProject(e) {
   e.preventDefault();
   const get = id => document.getElementById('f-' + id).value.trim();
   const num = v => v === '' ? null : Number(v);
+  const depends_on = [...document.getElementById('f-depends_on').selectedOptions].map(o => o.value);
 
   const payload = {
     project_name:    get('project_name'),
@@ -1299,21 +1640,31 @@ async function saveProject(e) {
     data_handled:      get('data_handled') || null,
     human_in_the_loop: get('human_in_the_loop') || null,
     rollback_plan:     get('rollback_plan') || null,
+    health:          get('health') || null,
+    depends_on:      depends_on,
     notes:           get('notes') || null,
     updated_by:      profile.id,
   };
 
   const btn = document.getElementById('modal-save');
   const err = document.getElementById('modal-err');
+
+  // Capture pre-save status BEFORE the await — a realtime event could replace
+  // the row mid-flight and make the "went Live" check race-y.
+  const wasEditing = !!editingId;
+  const prevStatus = wasEditing ? projects.find(p => p.id === editingId)?.status : null;
+  const wentLive = payload.status === 'Live' && prevStatus !== 'Live';
+  if (wentLive && !confirmLiveWithoutSignoff(editingId)) return;
+
   btn.disabled = true;
   err.style.display = 'none';
 
   let res;
   if (editingId) {
-    res = await sb.from('ai_projects').update(payload).eq('id', editingId);
+    res = await sb.from('ai_projects').update(payload).eq('id', editingId).select().single();
   } else {
     payload.created_by = profile.id;
-    res = await sb.from('ai_projects').insert(payload);
+    res = await sb.from('ai_projects').insert(payload).select().single();
   }
 
   btn.disabled = false;
@@ -1322,13 +1673,37 @@ async function saveProject(e) {
     err.style.display = 'block';
     return;
   }
-  const wasEditing = !!editingId;
-  const prev = wasEditing ? projects.find(p => p.id === editingId) : null;
-  const wentLive = payload.status === 'Live' && (!prev || prev.status !== 'Live');
+  // Merge the saved row locally so the edit shows even if realtime is down.
+  if (res.data) {
+    const i = projects.findIndex(p => p.id === res.data.id);
+    if (i >= 0) projects[i] = { ...projects[i], ...res.data };
+    else projects.push(res.data);
+    populateFilters();
+    render();
+  }
+  modalDirty['project-modal'] = false;
   closeProjectModal();
   if (wentLive) { showToast('🎉 ' + payload.project_name + ' is now live!'); fireConfetti(); }
   else showToast(wasEditing ? 'Project updated' : 'Project added');
 }
+
+// Deletes waiting out their 5s undo window (id -> timer). Flushed immediately
+// on pagehide so closing the tab can't resurrect an "undone-by-accident" row.
+const pendingDeletes = new Map();
+function flushPendingDeletes() {
+  if (!pendingDeletes.size) return;
+  const token = session?.access_token || SUPABASE_KEY;
+  pendingDeletes.forEach((timer, id) => {
+    clearTimeout(timer);
+    fetch(SUPABASE_URL + '/rest/v1/ai_projects?id=eq.' + id, {
+      method: 'DELETE',
+      keepalive: true,
+      headers: { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + token },
+    });
+  });
+  pendingDeletes.clear();
+}
+window.addEventListener('pagehide', flushPendingDeletes);
 
 function deleteProject() {
   if (!editingId) return;
@@ -1341,16 +1716,19 @@ function deleteProject() {
   populateFilters();
   render();
   const timer = setTimeout(async () => {
+    pendingDeletes.delete(id);
     const { error } = await sb.from('ai_projects').delete().eq('id', id);
     if (error) {
       showToast("Couldn't delete: " + error.message, 'err');
       if (!projects.some(x => x.id === id)) { projects.push(p); populateFilters(); render(); }
     }
   }, 5000);
+  pendingDeletes.set(id, timer);
   showToast(`Deleted "${p.project_name}"`, 'ok', {
     label: 'Undo',
     fn: () => {
       clearTimeout(timer);
+      pendingDeletes.delete(id);
       if (!projects.some(x => x.id === id)) { projects.push(p); populateFilters(); render(); }
     },
   });
@@ -1386,7 +1764,10 @@ async function saveSignoff(e) {
     signed_by_name: profile.display_name,
     notes:          document.getElementById('s-notes').value.trim() || null,
   };
+  const btn = document.querySelector('#signoff-form .btn-save');
+  btn.disabled = true;
   const { error } = await sb.from('ai_signoffs').insert(payload);
+  btn.disabled = false;
   if (error) {
     const err = document.getElementById('signoff-err');
     err.textContent = error.message;
@@ -1400,32 +1781,40 @@ async function saveSignoff(e) {
 // ============================================================================
 // EXPORT
 // ============================================================================
-function exportCSV() {
-  const rows = filterProjects();
-  const headers = ['ID','Theme','Project','Status','Owners','Progress %','Target','Priority','Impact','Ease','StratFit','Score','Deliverable URL','Success Metric','Risk Flags','Description','Notes','Risk Tier','Data Handled','Human In Loop','Rollback Plan'];
-  const lines = [headers.join(',')];
-  rows.forEach(p => {
-    const row = [
-      p.project_number, p.theme, p.project_name, p.status,
-      (p.owners || []).join(' + '),
-      Math.round((p.progress || 0) * 100),
-      p.target_date || '',
-      p.priority ?? '',
-      p.impact ?? '', p.ease ?? '', p.strategic_fit ?? '', p.score,
-      p.deliverable_url ?? '',
-      p.success_metric ?? '', (p.risk_flags || []).join(' · '),
-      p.description ?? '', p.notes ?? '',
-      p.risk_tier ?? '', p.data_handled ?? '', p.human_in_the_loop ?? '', p.rollback_plan ?? '',
-    ];
-    lines.push(row.map(v => '"' + String(v ?? '').replace(/"/g,'""') + '"').join(','));
-  });
+// One escaped CSV cell. Cells starting with = + - @ get a leading apostrophe
+// so Excel/Sheets treat them as text, not formulas (CSV-injection guard).
+function csvCell(v) {
+  let s = String(v ?? '');
+  if (/^[=+\-@]/.test(s)) s = "'" + s;
+  return '"' + s.replace(/"/g, '""') + '"';
+}
+function downloadCSV(filename, headers, rows) {
+  const lines = [headers.map(csvCell).join(',')];
+  rows.forEach(row => lines.push(row.map(csvCell).join(',')));
   const blob = new Blob([lines.join('\n')], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'thm-ai-projects-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function exportCSV() {
+  const rows = filterProjects();
+  const headers = ['ID','Theme','Project','Status','Owners','Progress %','Target','Priority','Impact','Ease','StratFit','Score','Deliverable URL','Success Metric','Risk Flags','Description','Notes','Risk Tier','Data Handled','Human In Loop','Rollback Plan'];
+  downloadCSV('thm-ai-projects-' + new Date().toISOString().slice(0,10) + '.csv', headers, rows.map(p => [
+    p.project_number, p.theme, p.project_name, p.status,
+    (p.owners || []).join(' + '),
+    Math.round((p.progress || 0) * 100),
+    p.target_date || '',
+    p.priority ?? '',
+    p.impact ?? '', p.ease ?? '', p.strategic_fit ?? '', p.score ?? '—',
+    p.deliverable_url ?? '',
+    p.success_metric ?? '', (p.risk_flags || []).join(' · '),
+    p.description ?? '', p.notes ?? '',
+    p.risk_tier ?? '', p.data_handled ?? '', p.human_in_the_loop ?? '', p.rollback_plan ?? '',
+  ]));
 }
 
 // ============================================================================
@@ -1436,11 +1825,18 @@ let decisions = [];
 let currentView = 'projects';
 let intakeDecisionId = null;
 let editingDecisionId = null;
+let intakeFilter    = { search: '', status: '' };
+let decisionsFilter = { search: '', status: '' };
+let deciderProfiles = null;  // lazy cache of profiles rows for "Draft email" recipient matching
 
 const URGENCY_RANK = { 'Blocking': 0, 'Next Up': 1, 'Soon': 2, 'Eventually': 3 };
+// DB stores the decision verb ('approve'/'defer'/'reject'/'pending' — matches
+// the CHECK constraint); show the friendlier past tense in the UI.
+const DECISION_LABEL = { pending: 'pending', approve: 'approved', defer: 'deferred', reject: 'rejected' };
 
 function showView(name) {
   currentView = name;
+  try { localStorage.setItem(VIEW_KEY, name); } catch (_) {}
   deepOpenId = null;
   document.querySelectorAll('.viewtab').forEach(t => t.classList.toggle('active', t.dataset.view === name));
   document.getElementById('view-projects').hidden  = name !== 'projects';
@@ -1486,15 +1882,30 @@ async function fetchIntake() {
 function renderIntake() {
   const list = document.getElementById('intake-list');
   const pending = intake.filter(s => (s.leadership_decision || 'pending') === 'pending').length;
-  document.getElementById('intake-count').textContent = `${intake.length} submission${intake.length !== 1 ? 's' : ''} · ${pending} pending`;
   setBadge('intake-badge', pending);
 
-  if (!intake.length) {
-    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta">No submissions yet. Anyone can submit an idea with the button above.</div></div></div></div>`;
+  // Client-side search (name / description / submitter) + decision filter.
+  const q = intakeFilter.search.trim().toLowerCase();
+  const shown = intake.filter(s => {
+    if (intakeFilter.status && (s.leadership_decision || 'pending') !== intakeFilter.status) return false;
+    if (q) {
+      const hay = [s.project_name, s.problem_being_solved, s.submitted_by_name].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+  const filtered = shown.length !== intake.length;
+  document.getElementById('intake-count').textContent =
+    (filtered ? `${shown.length} of ` : '') + `${intake.length} submission${intake.length !== 1 ? 's' : ''} · ${pending} pending`;
+
+  if (!shown.length) {
+    const msg = intake.length ? 'No submissions match the current filters.' : 'No submissions yet. Anyone can submit an idea with the button above.';
+    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta">${msg}</div></div></div></div>`;
     return;
   }
-  list.innerHTML = intake.map(s => {
+  list.innerHTML = shown.map(s => {
     const dec = s.leadership_decision || 'pending';
+    const decLabel = DECISION_LABEL[dec] || dec;
     const score = (s.impact || 0) + (s.ease || 0) + (s.strategic_fit || 0);
     return `
     <div class="card" data-expandable="1">
@@ -1503,7 +1914,7 @@ function renderIntake() {
           <div class="card-title">${escapeHTML(s.project_name)}</div>
           <div class="card-meta">${escapeHTML(s.business_area || 'No theme')} · by ${escapeHTML(s.submitted_by_name)} · ${formatWhen(s.submitted_at)}</div>
         </div>
-        <div class="card-side"><span class="pill pill-decision-${escapeHTML(dec)}">${escapeHTML(dec)}</span></div>
+        <div class="card-side"><span class="pill pill-decision-${escapeHTML(dec)}">${escapeHTML(decLabel)}</span></div>
       </div>
       <div class="card-detail">
         <div class="grid">
@@ -1515,14 +1926,14 @@ function renderIntake() {
           ${field('Integrations / data sources', s.integrations_data_sources)}
           ${field('Data handled', s.data_handled)}
           ${field('Effort estimate', s.effort_estimate)}
-          ${field('Impact / Ease / Fit', `${s.impact ?? '—'} / ${s.ease ?? '—'} / ${s.strategic_fit ?? '—'}  (score ${score}/15)`)}
+          ${field('Impact / Ease / Fit', (s.impact != null || s.ease != null || s.strategic_fit != null) ? `${s.impact ?? '—'} / ${s.ease ?? '—'} / ${s.strategic_fit ?? '—'}  (score ${score}/15)` : '')}
           ${field('Proposed target', s.proposed_target_date ? formatDate(s.proposed_target_date) : '')}
           ${field('Human-in-the-loop', s.human_in_the_loop)}
           ${field('Rollback plan', s.rollback_plan)}
           ${field('Risk flags', (s.risk_flags || []).join(' · '))}
           ${field('Stakeholders', s.stakeholders)}
           ${field('Open questions', s.open_questions)}
-          ${field('Decision', dec + (s.decided_by_name ? ` — ${s.decided_by_name} · ${formatWhen(s.decided_at)}` : ''))}
+          ${field('Decision', decLabel + (s.decided_by_name ? ` — ${s.decided_by_name} · ${formatWhen(s.decided_at)}` : ''))}
           ${field('Decision notes', s.decision_notes)}
         </div>
         ${isAdmin() ? `<div class="row-actions"><button data-intake-action="decide" data-id="${s.id}">Record decision</button></div>` : ''}
@@ -1535,44 +1946,35 @@ function renderIntake() {
 }
 
 function openIntakeModal() {
-  ['i-project_name','i-proposed_owner','i-business_area','i-problem_being_solved','i-why_now_strategic_fit',
-   'i-success_metric','i-technical_approach','i-integrations_data_sources','i-data_handled','i-effort_estimate',
-   'i-proposed_target_date','i-impact','i-ease','i-strategic_fit','i-human_in_the_loop','i-rollback_plan',
-   'i-risk_flags','i-stakeholders','i-open_questions'].forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
+  ['i-project_name','i-business_area','i-problem_being_solved','i-success_metric']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('intake-err').style.display = 'none';
+  modalDirty['intake-modal'] = false;
   openModal(document.getElementById('intake-modal'));
 }
 
 async function saveIntake(e) {
   e.preventDefault();
   const g = id => document.getElementById(id).value.trim();
-  const num = id => { const v = document.getElementById(id).value; return v === '' ? null : Number(v); };
+  // Staff intake is deliberately lean — just these four fields. The technical /
+  // scoring columns (impact, ease, strategic_fit, technical_approach, risk_flags,
+  // etc.) are left null here and filled by admins when an idea is promoted to a
+  // real project. See docs/[C] AI Projects Dashboard.md.
   const payload = {
-    project_name:              g('i-project_name'),
-    proposed_owner:            g('i-proposed_owner') || null,
-    business_area:             g('i-business_area') || null,
-    problem_being_solved:      g('i-problem_being_solved') || null,
-    why_now_strategic_fit:     g('i-why_now_strategic_fit') || null,
-    success_metric:            g('i-success_metric') || null,
-    technical_approach:        g('i-technical_approach') || null,
-    integrations_data_sources: g('i-integrations_data_sources') || null,
-    data_handled:              g('i-data_handled') || null,
-    effort_estimate:           g('i-effort_estimate') || null,
-    human_in_the_loop:         g('i-human_in_the_loop') || null,
-    rollback_plan:             g('i-rollback_plan') || null,
-    risk_flags:                parseCSV(g('i-risk_flags')),
-    impact:                    num('i-impact'),
-    ease:                      num('i-ease'),
-    strategic_fit:             num('i-strategic_fit'),
-    proposed_target_date:      g('i-proposed_target_date') || null,
-    stakeholders:              g('i-stakeholders') || null,
-    open_questions:            g('i-open_questions') || null,
-    submitted_by:              profile.id,
-    submitted_by_name:         profile.display_name,
+    project_name:         g('i-project_name'),
+    business_area:        g('i-business_area') || null,
+    problem_being_solved: g('i-problem_being_solved') || null,
+    success_metric:       g('i-success_metric') || null,
+    submitted_by:         profile.id,
+    submitted_by_name:    profile.display_name,
   };
   const err = document.getElementById('intake-err');
+  const btn = document.querySelector('#intake-form .btn-save');
+  btn.disabled = true;
   const res = await sb.from('ai_intake_submissions').insert(payload);
+  btn.disabled = false;
   if (res.error) { err.textContent = res.error.message; err.style.display = 'block'; return; }
+  modalDirty['intake-modal'] = false;
   dismissModal(document.getElementById('intake-modal'));
   await fetchIntake(); renderIntake();
   showView('intake');
@@ -1583,7 +1985,7 @@ function openIntakeDecision(id) {
   if (!isAdmin()) return;
   intakeDecisionId = id;
   const s = intake.find(x => x.id === id);
-  const cur = s && s.leadership_decision && s.leadership_decision !== 'pending' ? s.leadership_decision : 'approved';
+  const cur = s && s.leadership_decision && s.leadership_decision !== 'pending' ? s.leadership_decision : 'approve';
   document.getElementById('id-decision').value = cur;
   document.getElementById('id-notes').value = s?.decision_notes || '';
   document.getElementById('intake-decision-err').style.display = 'none';
@@ -1599,7 +2001,10 @@ async function saveIntakeDecision(e) {
     decided_by_name:     profile.display_name,
     decided_at:          new Date().toISOString(),
   };
+  const btn = document.querySelector('#intake-decision-form .btn-save');
+  btn.disabled = true;
   const res = await sb.from('ai_intake_submissions').update(payload).eq('id', intakeDecisionId);
+  btn.disabled = false;
   const err = document.getElementById('intake-decision-err');
   if (res.error) { err.textContent = res.error.message; err.style.display = 'block'; return; }
   dismissModal(document.getElementById('intake-decision-modal'));
@@ -1615,17 +2020,35 @@ async function fetchDecisions() {
   decisions = data;
 }
 
+// Client-side search (decision_needed / who_decides) + open/resolved filter.
+function filterDecisions() {
+  const q = decisionsFilter.search.trim().toLowerCase();
+  return decisions.filter(d => {
+    if (decisionsFilter.status === 'open' && d.resolved_at) return false;
+    if (decisionsFilter.status === 'resolved' && !d.resolved_at) return false;
+    if (q) {
+      const hay = [d.decision_needed, d.who_decides].join(' ').toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+
 function renderDecisions() {
   const list = document.getElementById('decisions-list');
   const open = decisions.filter(d => !d.resolved_at).length;
-  document.getElementById('decisions-count').textContent = `${decisions.length} total · ${open} open`;
   setBadge('decisions-badge', open);
 
-  if (!decisions.length) {
-    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta">No decisions logged yet.</div></div></div></div>`;
+  const shown = filterDecisions();
+  document.getElementById('decisions-count').textContent =
+    (shown.length !== decisions.length ? `${shown.length} of ` : '') + `${decisions.length} total · ${open} open`;
+
+  if (!shown.length) {
+    const msg = decisions.length ? 'No decisions match the current filters.' : 'No decisions logged yet.';
+    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta">${msg}</div></div></div></div>`;
     return;
   }
-  const sorted = [...decisions].sort((a, b) => {
+  const sorted = [...shown].sort((a, b) => {
     const ar = a.resolved_at ? 1 : 0, br = b.resolved_at ? 1 : 0;
     if (ar !== br) return ar - br;   // open first
     return (URGENCY_RANK[a.urgency] ?? 9) - (URGENCY_RANK[b.urgency] ?? 9);
@@ -1653,13 +2076,172 @@ function renderDecisions() {
           ${field('Notes / context', d.notes_context)}
           ${resolved ? field('Resolution', (d.resolution_notes || '') + (d.resolved_by_name ? ` — ${d.resolved_by_name}` : '')) : ''}
         </div>
-        ${isAdmin() ? `<div class="row-actions"><button data-decision-action="edit" data-id="${d.id}">${resolved ? 'Edit' : 'Manage / resolve'}</button></div>` : ''}
+        ${isAdmin() ? `<div class="row-actions"><button data-decision-action="edit" data-id="${d.id}">${resolved ? 'Edit' : 'Manage / resolve'}</button>${!resolved ? `<button class="secondary" data-decision-action="email" data-id="${d.id}">✉️ Draft email</button>` : ''}</div>` : ''}
       </div>
     </div>`;
   }).join('');
   wireCards('decisions-list');
   list.querySelectorAll('[data-decision-action="edit"]').forEach(b =>
     b.addEventListener('click', e => { e.stopPropagation(); openDecisionModal(b.dataset.id); }));
+  list.querySelectorAll('[data-decision-action="email"]').forEach(b =>
+    b.addEventListener('click', e => { e.stopPropagation(); draftDecisionEmail(b.dataset.id); }));
+}
+
+// ---- "Draft email" on open decisions ----
+// Profiles are fetched once per session and cached (RLS lets admins read all rows).
+async function fetchDeciderProfiles() {
+  if (deciderProfiles) return deciderProfiles;
+  const { data, error } = await sb.from('profiles').select('display_name,email,role');
+  if (error) { console.error(error); return []; }   // don't cache a failed fetch
+  deciderProfiles = data || [];
+  return deciderProfiles;
+}
+
+// "Masen + Matt", "Mel + IT", "Everyone (group conversation)" → ['Masen','Matt'] etc.
+function deciderTokens(whoDecides) {
+  return (whoDecides || '').split(/[+,]/)
+    .map(t => t.replace(/\(.*?\)/g, '').trim())
+    .filter(Boolean);
+}
+
+// Match a token to a profile by first name: exact, prefix either way ("Mel" ↔ "Melanie").
+// Tokens under 3 chars never match — too easy to hit the wrong person.
+function matchDeciderProfile(token, profiles) {
+  if (token.length < 3) return null;
+  const tok = token.toLowerCase();
+  return profiles.find(p => {
+    const first = (p.display_name || '').trim().split(/\s+/)[0].toLowerCase();
+    return first && (first === tok || first.startsWith(tok) || tok.startsWith(first));
+  }) || null;
+}
+
+function joinNames(names) {
+  if (names.length <= 1) return names[0] || 'all';
+  return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
+}
+
+let emailDraftSeq = 0;   // guards against a stale AI response landing after a newer draft opened
+
+async function draftDecisionEmail(id) {
+  const d = decisions.find(x => x.id === id);
+  if (!d) return;
+  const seq = ++emailDraftSeq;
+  const bd = document.getElementById('email-modal');
+
+  // Open the modal straight away in its loading state — the AI draft takes a few seconds.
+  document.getElementById('em-loading').hidden = false;
+  document.getElementById('em-form').hidden = true;
+  document.getElementById('em-note').hidden = true;
+  document.getElementById('em-to-hint').hidden = true;
+  openModal(bd);
+
+  const profiles = await fetchDeciderProfiles();
+  const tokens = deciderTokens(d.who_decides);
+
+  const emails = [], greetNames = [];
+  tokens.forEach(t => {
+    const p = matchDeciderProfile(t, profiles);
+    if (p && p.email && !emails.includes(p.email)) emails.push(p.email);
+    // Greet by matched first name when we found one ("Mel" → "Melanie"), else keep the token.
+    greetNames.push(p ? p.display_name.trim().split(/\s+/)[0] : t);
+  });
+
+  // Ask Claude (draft-decision-email edge function) to write the email in plain
+  // English; fall back to the local template on any failure or a 20s timeout.
+  let draft = null;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const { data, error } = await sb.functions.invoke('draft-decision-email', {
+      body: {
+        decision_id: id,
+        greeting_names: greetNames,
+        sender_name: (profile.display_name || '').trim().split(/\s+/)[0],
+      },
+      signal: ctrl.signal,
+    });
+    if (!error && data && !data.error && data.subject && data.body) draft = { subject: data.subject, body: data.body };
+  } catch (_) { /* network failure or timeout abort — fall back below */ }
+  clearTimeout(timer);
+  const fellBack = !draft;
+  if (fellBack) draft = buildLocalDraft(d, greetNames);
+
+  if (seq !== emailDraftSeq || !bd.classList.contains('open')) return;   // user moved on meanwhile
+
+  document.getElementById('em-to').value = emails.join(', ');
+  document.getElementById('em-subject').value = draft.subject;
+  document.getElementById('em-body').value = draft.body;
+  document.getElementById('em-note').hidden = !fellBack;
+  const hint = document.getElementById('em-to-hint');
+  hint.hidden = emails.length > 0;
+  if (!emails.length) hint.textContent = `Couldn't match '${d.who_decides || '(no deciders)'}' to a staff email — add recipients manually.`;
+  document.getElementById('em-loading').hidden = true;
+  document.getElementById('em-form').hidden = false;
+  setTimeout(() => document.getElementById('em-to').focus(), 30);
+}
+
+// Local fallback template — used when the AI draft is unavailable. Same wording
+// the feature shipped with; returns { subject, body } for the editable modal.
+function buildLocalDraft(d, greetNames) {
+  const projectName = d.related_project_text ||
+    (d.related_project_id ? (projects.find(p => p.id === d.related_project_id)?.project_name || '') : '');
+  const subjectText = d.decision_needed.length > 80 ? d.decision_needed.slice(0, 80) + '…' : d.decision_needed;
+
+  // Urgency rendered as a human sentence, not a tracker label.
+  const URGENCY_LINE = {
+    'Blocking':   'This one is currently blocking progress, so a quick answer would be a big help.',
+    'Next Up':    'This is next in line for us, so it would be great to settle it in the next week or so.',
+    'Soon':       'No fire drill, but it would be good to have an answer soon.',
+    'Eventually': 'No rush on this one — whenever you get a moment.',
+  };
+
+  let ctx = (d.notes_context || '').trim();
+  if (ctx.length > 400) ctx = ctx.slice(0, 400) + '…';
+  const opener = projectName
+    ? `I'm hoping you can help settle an open question on the ${projectName} project (from the AI Projects tracker):`
+    : "I'm hoping you can help settle an open question from the AI Projects tracker:";
+  const body = [
+    `Hi ${joinNames(greetNames)},`,
+    '',
+    opener,
+    '',
+    d.decision_needed,
+    ...(ctx ? ['', `A bit of background: ${ctx}`] : []),
+    ...(URGENCY_LINE[d.urgency] ? ['', URGENCY_LINE[d.urgency]] : []),
+    '',
+    "Could you reply with your call, or grab me if it's easier to talk through? The full list of open decisions is here:",
+    'https://anguslindsay-a11y.github.io/thm-ai-projects-dashboard/?v=decisions',
+    '',
+    'Thanks,',
+    profile.display_name,
+  ].join('\n');
+  return { subject: 'Decision needed: ' + subjectText, body };
+}
+
+// "Open in mail app" — build a mailto: from whatever is in the fields right now.
+// Mail clients choke on very long mailto: URLs — trim the body until it fits.
+function openEmailDraftInMailApp() {
+  const to = document.getElementById('em-to').value.trim();
+  const subject = document.getElementById('em-subject').value.trim();
+  let body = document.getElementById('em-body').value;
+  const buildUrl = b => 'mailto:' + encodeURIComponent(to) +
+    '?subject=' + encodeURIComponent(subject) + '&body=' + encodeURIComponent(b);
+  let url = buildUrl(body);
+  if (url.length > 1800) {
+    while (body.length && buildUrl(body + '…').length > 1800) body = body.slice(0, -40);
+    url = buildUrl(body + '…');
+    showToast('Long draft — body truncated in the mail app; use Copy instead', 'err');
+  } else {
+    showToast('Email draft opened — check your mail app');
+  }
+  window.location.href = url;
+}
+
+function copyEmailDraft() {
+  const text = `Subject: ${document.getElementById('em-subject').value.trim()}\n\n${document.getElementById('em-body').value}`;
+  navigator.clipboard.writeText(text).then(
+    () => showToast('Email copied — paste it into a new message'),
+    () => showToast("Couldn't copy — your browser blocked clipboard access", 'err'));
 }
 
 function openDecisionModal(id) {
@@ -1698,9 +2280,13 @@ async function saveDecision(resolve) {
     payload.resolved_by = profile.id;
     payload.resolved_by_name = profile.display_name;
   }
+  const saveBtn = document.querySelector('#decision-form .btn-save');
+  const resolveBtn = document.getElementById('decision-resolve');
+  saveBtn.disabled = true; resolveBtn.disabled = true;
   let res;
   if (editingDecisionId) res = await sb.from('ai_decisions').update(payload).eq('id', editingDecisionId);
   else res = await sb.from('ai_decisions').insert(payload);
+  saveBtn.disabled = false; resolveBtn.disabled = false;
   if (res.error) { err.textContent = res.error.message; err.style.display = 'block'; return; }
   dismissModal(document.getElementById('decision-modal'));
   editingDecisionId = null;
@@ -1718,6 +2304,18 @@ async function deleteDecision() {
   editingDecisionId = null;
   await fetchDecisions(); renderDecisions();
   showToast('Decision deleted');
+}
+
+function exportDecisionsCSV() {
+  const rows = filterDecisions();
+  const headers = ['Urgency','Decision needed','Who decides','Related project','Notes / context','Status','Resolved at','Resolved by','Resolution notes','Created at'];
+  downloadCSV('thm-ai-decisions-' + new Date().toISOString().slice(0,10) + '.csv', headers, rows.map(d => [
+    d.urgency ?? '', d.decision_needed ?? '', d.who_decides ?? '',
+    d.related_project_text ?? '', d.notes_context ?? '',
+    d.resolved_at ? 'resolved' : 'open',
+    d.resolved_at ?? '', d.resolved_by_name ?? '', d.resolution_notes ?? '',
+    d.created_at ?? '',
+  ]));
 }
 
 // ============================================================================
@@ -1867,7 +2465,7 @@ function runCmdk(it) {
       const ex = document.querySelector(`.expandable-row[data-for="${it.id}"]`);
       if (row) {
         row.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        if (ex && !ex.classList.contains('open')) { ex.classList.add('open'); row.setAttribute('aria-expanded', 'true'); }
+        if (ex && !ex.classList.contains('open')) { ex.classList.add('open'); row.setAttribute('aria-expanded', 'true'); expandedIds.add(it.id); }
       }
     }, 60);
   } else if (it.run) {
