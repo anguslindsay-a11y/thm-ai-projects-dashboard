@@ -245,15 +245,17 @@ main {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* Pinned brand indigos — the theme vars flip to light blues in dark mode,
+     which made the backdrop go pale behind the dark card. */
   background:
     radial-gradient(1200px 600px at 20% -10%, rgba(162,180,192,0.18), transparent 60%),
     radial-gradient(900px 500px at 100% 100%, rgba(34,58,92,0.18), transparent 60%),
-    linear-gradient(135deg, var(--indigo-deep) 0%, var(--indigo) 60%, var(--indigo-soft) 100%);
+    linear-gradient(135deg, #0d2038 0%, #223a5c 60%, #2d4a73 100%);
   padding: 24px;
   font-family: var(--font-body);
 }
 .login-card {
-  background: #fff;
+  background: var(--bg-surface);  /* follows the theme — text colors are theme vars too */
   padding: 40px 36px 32px;
   border-radius: var(--radius-lg);
   max-width: 440px;
@@ -270,7 +272,7 @@ main {
   width: 40px;
   height: 40px;
   border-radius: 10px;
-  background: var(--indigo);
+  background: #223a5c;  /* brand indigo, pinned — dark mode flips --indigo to a light blue */
   display: flex;
   align-items: center;
   justify-content: center;
@@ -320,7 +322,7 @@ main {
 .login-card input:focus {
   outline: none;
   border-color: var(--indigo);
-  background: #fff;
+  background: var(--bg-surface);
   box-shadow: var(--focus-ring);
 }
 .login-card button {
@@ -339,18 +341,20 @@ main {
 .login-card button:active { transform: translateY(1px); }
 .login-card button:disabled { opacity: 0.55; cursor: not-allowed; }
 
-/* "Continue with Google" — white surface so the multi-color G reads correctly */
+/* "Continue with Google" — always a white surface so the multi-color G reads
+   correctly, so its text/border/hover are pinned literals, NOT theme vars
+   (in dark mode the vars would put near-white text on this white button). */
 .login-card button.btn-google {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10px;
   background: #fff;
-  color: var(--fg-strong);
-  border: 1px solid var(--hairline);
+  color: #1f2c3e;
+  border: 1px solid #e4e1dd;
   box-shadow: var(--shadow-1);
 }
-.login-card button.btn-google:hover { background: var(--paper); border-color: var(--indigo); }
+.login-card button.btn-google:hover { background: #f5f4f2; border-color: #223a5c; }
 .login-card button.btn-google:disabled { opacity: 0.55; cursor: not-allowed; }
 .login-card button.btn-google .g-logo { flex-shrink: 0; }
 
