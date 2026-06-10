@@ -222,12 +222,52 @@ function toggleTheme() {
   if (currentView === 'insights') renderInsights();  // recolor charts for the new theme
 }
 
+// --- OAuth redirect plumbing -------------------------------------------------
+// Google sends us back to this page with either tokens (#access_token=…, which
+// supabase-js consumes automatically via detectSessionInUrl) or an error
+// (error/error_description, in the hash or the query string — e.g. when the
+// @thmmedia.com DB trigger rejects a personal Gmail with "Database error saving
+// new user"). Capture errors synchronously before anything rewrites the URL.
+function consumeOAuthError() {
+  const fromHash   = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  const fromSearch = new URLSearchParams(location.search);
+  const src = fromHash.get('error') ? fromHash : (fromSearch.get('error') ? fromSearch : null);
+  if (!src) return null;
+  return { error: src.get('error'), description: src.get('error_description') || '' };
+}
+
+// Strip OAuth artifacts from the URL without nuking legit deep-link params
+// (?v=, ?p=, filters, and our own ?auth=password break-glass switch).
+function cleanOAuthURL() {
+  const OAUTH_PARAMS = ['code', 'state', 'error', 'error_code', 'error_description',
+    'access_token', 'refresh_token', 'provider_token', 'provider_refresh_token',
+    'expires_in', 'expires_at', 'token_type', 'type'];
+  const pr = new URLSearchParams(location.search);
+  const hadSearch = OAUTH_PARAMS.some(k => pr.has(k));
+  OAUTH_PARAMS.forEach(k => pr.delete(k));
+  const hadHash = /(?:^|[#&])(access_token|refresh_token|error|provider_token)=/.test(location.hash || '');
+  if (!hadSearch && !hadHash) return;
+  const qs = pr.toString();
+  history.replaceState(null, '', location.pathname + (qs ? '?' + qs : ''));
+}
+
 async function init() {
   applyTheme(localStorage.getItem('thm_theme'));
-  const { data } = await sb.auth.getSession();
+  const oauthError = consumeOAuthError();   // read before supabase-js / writeURL touch the URL
+  const { data } = await sb.auth.getSession();   // waits for detectSessionInUrl to finish
   session = data.session;
+  cleanOAuthURL();
   if (!session) {
     document.getElementById('login-screen').style.display = 'flex';
+    // Break-glass: ?auth=password reveals the minimal email+password form.
+    if (new URLSearchParams(location.search).get('auth') === 'password') {
+      document.getElementById('password-form').style.display = 'block';
+    }
+    if (oauthError) {
+      showMsg('err', /database error saving new user/i.test(oauthError.description)
+        ? "That Google account isn't a @thmmedia.com account — sign in with your work account."
+        : `Google sign-in failed${oauthError.description ? ' — ' + oauthError.description : ''}. Please try again.`);
+    }
     return;
   }
   await loadProfile();
@@ -250,10 +290,32 @@ function showMsg(kind, text) {
   msg.style.display = 'block';
 }
 
-// Shared temporary password new staff use for their very first sign-in.
-const DEFAULT_TEMP_PW = 'THMnew2026!';
+// GOOGLE SIGN-IN — the only sign-in path. The DB trigger enforces @thmmedia.com
+// at auth.users INSERT and auto-creates a viewer profile; Supabase auto-links
+// the Google identity onto an existing account when the verified email matches.
+document.getElementById('google-btn').addEventListener('click', async () => {
+  const btn = document.getElementById('google-btn');
+  const label = document.getElementById('google-btn-label');
+  btn.disabled = true;
+  label.textContent = 'Redirecting…';
+  document.getElementById('login-msg').style.display = 'none';
+  const { error } = await sb.auth.signInWithOAuth({
+    provider: 'google',
+    options: {
+      redirectTo: location.origin + location.pathname,
+      queryParams: { hd: 'thmmedia.com', prompt: 'select_account' },
+    },
+  });
+  if (error) {   // e.g. "Unsupported provider" before the console setup is done
+    btn.disabled = false;
+    label.textContent = 'Continue with Google';
+    showMsg('err', error.message || 'Could not start Google sign-in — please try again.');
+  }
+  // On success the browser navigates to Google; keep the button disabled.
+});
 
-// PASSWORD LOGIN (also bootstraps first-time accounts via the temp password)
+// EMERGENCY PASSWORD LOGIN (break-glass, admins) — only visible via ?auth=password.
+// Plain signInWithPassword: no signup, no temp-password bootstrap, no reset flow.
 document.getElementById('password-form').addEventListener('submit', async e => {
   e.preventDefault();
   const email = document.getElementById('pw-email').value.trim();
@@ -261,37 +323,7 @@ document.getElementById('password-form').addEventListener('submit', async e => {
   const btn = document.getElementById('pw-btn');
   btn.disabled = true;
   document.getElementById('login-msg').style.display = 'none';
-
-  let { error, data } = await sb.auth.signInWithPassword({ email, password });
-
-  // First time: signing in with the shared temp password creates the account.
-  // The DB trigger enforces @thmmedia.com; we also gate here for a clean message.
-  if (error && password === DEFAULT_TEMP_PW && /@thmmedia\.com$/i.test(email)) {
-    const up = await sb.auth.signUp({ email, password });
-    if (up.error) {
-      btn.disabled = false;
-      const m = up.error.message || '';
-      showMsg('err', /already registered|already exists/i.test(m)
-        ? 'This account already exists — sign in with your own password, not the temporary one.'
-        : m);
-      return;
-    }
-    // Supabase "succeeds" with an obfuscated user (no identities) when the email
-    // already has an account — don't tell them a new account was created.
-    if (up.data.user && Array.isArray(up.data.user.identities) && up.data.user.identities.length === 0) {
-      btn.disabled = false;
-      showMsg('err', "This email already has an account. If you forgot your password, use 'Forgot password?' below.");
-      return;
-    }
-    if (!up.data.session) {
-      // "Confirm email" is ON in Supabase — they must confirm before first login.
-      btn.disabled = false;
-      showMsg('ok', 'Account created! Check your email to confirm it, then sign in with the temporary password.');
-      return;
-    }
-    data = up.data; error = null;
-  }
-
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
   btn.disabled = false;
   if (error) { showMsg('err', error.message); return; }
   session = data.session;
@@ -306,105 +338,16 @@ document.getElementById('um-signout').addEventListener('click', async () => {
 });
 
 // Note: we deliberately don't trigger reload from onAuthStateChange — the
-// password / OTP forms call mountApp() directly after sign-in, and the magic
-// link redirect path is handled by init() reading the URL hash via getSession().
-// The one exception: SIGNED_OUT (expired/revoked session) bounces back to the
-// login screen instead of letting every subsequent write fail silently. We also
-// keep `session` fresh so the pagehide delete-flush always has a valid token.
+// Google OAuth redirect is handled by init() (supabase-js detects the session
+// in the URL via getSession()), and the emergency password form calls
+// mountApp() directly after sign-in. The one exception: SIGNED_OUT
+// (expired/revoked session) bounces back to the login screen instead of
+// letting every subsequent write fail silently. We also keep `session` fresh
+// so the pagehide delete-flush always has a valid token.
 sb.auth.onAuthStateChange((event, s) => {
   if (event === 'TOKEN_REFRESHED' && s) session = s;
   if (event === 'SIGNED_OUT') location.reload();
 });
-
-// ============================================================================
-// FORGOT PASSWORD (OTP) — email a 6-digit code, verify, then force a new
-// password via the same set-password modal used for temp-password onboarding.
-// (Our Supabase email templates are deliberately token-only — no links.)
-// ============================================================================
-let resetCodeSent = false;
-document.getElementById('forgot-link').addEventListener('click', () => {
-  document.getElementById('password-form').style.display = 'none';
-  document.getElementById('reset-form').style.display = 'block';
-  document.getElementById('reset-email').value = document.getElementById('pw-email').value.trim();
-  document.getElementById('reset-code-wrap').style.display = 'none';
-  document.getElementById('reset-btn').textContent = 'Email me a code';
-  document.getElementById('login-msg').style.display = 'none';
-  resetCodeSent = false;
-});
-document.getElementById('reset-back').addEventListener('click', () => {
-  document.getElementById('reset-form').style.display = 'none';
-  document.getElementById('password-form').style.display = 'block';
-  document.getElementById('login-msg').style.display = 'none';
-});
-document.getElementById('reset-form').addEventListener('submit', async e => {
-  e.preventDefault();
-  const email = document.getElementById('reset-email').value.trim();
-  const btn = document.getElementById('reset-btn');
-  document.getElementById('login-msg').style.display = 'none';
-
-  if (!resetCodeSent) {
-    btn.disabled = true;
-    const { error } = await sb.auth.signInWithOtp({ email, options: { shouldCreateUser: false } });
-    btn.disabled = false;
-    if (error) { showMsg('err', error.message); return; }
-    resetCodeSent = true;
-    document.getElementById('reset-code-wrap').style.display = 'block';
-    btn.textContent = 'Verify code';
-    showMsg('ok', 'We emailed you a 6-digit code — enter it above.');
-    setTimeout(() => document.getElementById('reset-code').focus(), 30);
-    return;
-  }
-
-  const token = document.getElementById('reset-code').value.trim();
-  if (!token) { showMsg('err', 'Enter the 6-digit code from the email.'); return; }
-  btn.disabled = true;
-  const { data, error } = await sb.auth.verifyOtp({ email, token, type: 'email' });
-  btn.disabled = false;
-  if (error) { showMsg('err', error.message); return; }
-  session = data.session;
-  document.getElementById('login-screen').style.display = 'none';
-  await loadProfile();
-  await mountApp();
-  openPasswordSetup();   // they forgot it — make them set a new one now
-});
-
-// ============================================================================
-// FIRST-LOGIN PASSWORD SETUP
-// ============================================================================
-function openPasswordSetup() {
-  document.getElementById('ps-pw').value = '';
-  document.getElementById('ps-pw2').value = '';
-  document.getElementById('password-err').style.display = 'none';
-  openModal(document.getElementById('password-modal'));
-}
-async function savePasswordSetup(e) {
-  e.preventDefault();
-  const pw  = document.getElementById('ps-pw').value;
-  const pw2 = document.getElementById('ps-pw2').value;
-  const err = document.getElementById('password-err');
-  if (pw.length < 8)        { err.textContent = 'Password must be at least 8 characters.'; err.style.display = 'block'; return; }
-  if (pw === DEFAULT_TEMP_PW){ err.textContent = 'Please choose a password different from the temporary one.'; err.style.display = 'block'; return; }
-  if (pw !== pw2)           { err.textContent = 'Those passwords don\'t match.'; err.style.display = 'block'; return; }
-  const { error } = await sb.auth.updateUser({ password: pw });
-  // "Same as old password" can happen on a retry after a failed mark_password_set
-  // — the password itself is fine, so carry on to the RPC.
-  if (error && !/different from the old/i.test(error.message || '')) {
-    err.textContent = error.message; err.style.display = 'block'; return;
-  }
-  // If this RPC fails, profiles.password_set stays false and the locked modal
-  // would come back forever — retry once, then surface an actionable error.
-  let { error: rpcErr } = await sb.rpc('mark_password_set');
-  if (rpcErr) ({ error: rpcErr } = await sb.rpc('mark_password_set'));
-  if (rpcErr) {
-    err.textContent = `Password saved, but we couldn't finish account setup (${rpcErr.message}). Click the button again to retry.`;
-    err.style.display = 'block';
-    showToast("Couldn't finish account setup — try again or ping Masen/Angus.", 'err');
-    return;
-  }
-  if (profile) profile.password_set = true;
-  dismissModal(document.getElementById('password-modal'));
-  showToast('Password set — you\'re all set!');
-}
 
 // ============================================================================
 // DATA LOADING
@@ -450,8 +393,6 @@ async function mountApp() {
       if (row) { deepOpenId = urlOpenId; row.scrollIntoView({ block: 'center' }); if (ex) { ex.classList.add('open'); row.setAttribute('aria-expanded', 'true'); expandedIds.add(urlOpenId); } }
     }, 80);
   }
-  // First-time users: prompt to set a password (admins already have password_set=true).
-  if (profile && profile.password_set === false) openPasswordSetup();
 }
 
 async function fetchProjects() {
@@ -1502,8 +1443,6 @@ function attachEvents() {
   // Dirty tracking for the two data-entry modals — one input listener each.
   document.getElementById('project-form').addEventListener('input', () => { modalDirty['project-modal'] = true; });
   document.getElementById('intake-form').addEventListener('input', () => { modalDirty['intake-modal'] = true; });
-  // First-login password setup (required — no skip)
-  document.getElementById('password-setup-form').addEventListener('submit', savePasswordSetup);
   // User menu (folds theme / activity / ask / sign-out)
   const userMenu = document.getElementById('user-menu');
   const userMenuBtn = document.getElementById('user-menu-btn');

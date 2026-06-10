@@ -339,21 +339,29 @@ main {
 .login-card button:active { transform: translateY(1px); }
 .login-card button:disabled { opacity: 0.55; cursor: not-allowed; }
 
-/* Text-style links under the login forms ("Forgot password?" / "Back to sign in") */
-.login-card button.login-link {
-  width: auto;
-  display: block;
-  margin: 14px auto 0;
-  background: none;
-  border: none;
-  padding: 0;
-  color: var(--indigo);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: underline;
-  cursor: pointer;
+/* "Continue with Google" — white surface so the multi-color G reads correctly */
+.login-card button.btn-google {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: #fff;
+  color: var(--fg-strong);
+  border: 1px solid var(--hairline);
+  box-shadow: var(--shadow-1);
 }
-.login-card button.login-link:hover { background: none; color: var(--indigo-deep); }
+.login-card button.btn-google:hover { background: var(--paper); border-color: var(--indigo); }
+.login-card button.btn-google:disabled { opacity: 0.55; cursor: not-allowed; }
+.login-card button.btn-google .g-logo { flex-shrink: 0; }
+
+/* Break-glass password form (?auth=password) */
+.login-card #password-form { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--hairline); }
+.login-emergency-note {
+  margin: 10px 0 0;
+  text-align: center;
+  font-size: 12px;
+  color: var(--fg-faint);
+}
 
 .login-msg {
   font-size: 13px;
@@ -364,44 +372,6 @@ main {
 }
 .login-msg.ok  { background: var(--ok-bg);     color: var(--ok-fg); }
 .login-msg.err { background: var(--danger-bg); color: var(--danger-fg); }
-
-/* "First time here?" disclosure — keeps the starter password off the first paint */
-.login-first-time { margin-top: 14px; text-align: center; }
-.login-first-time summary {
-  display: inline-block;
-  cursor: pointer;
-  list-style: none;
-  color: var(--indigo);
-  font-size: 13px;
-  font-weight: 600;
-  text-decoration: underline;
-}
-.login-first-time summary::-webkit-details-marker { display: none; }
-.login-first-time summary:hover { color: var(--indigo-deep); }
-.login-first-time summary:focus-visible { outline: 2px solid var(--indigo); outline-offset: 2px; border-radius: 4px; }
-.login-first-time .lft-body {
-  margin-top: 12px;
-  padding: 14px 16px;
-  text-align: left;
-  background: var(--timber-soft);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  font-size: 13px;
-  color: var(--fg-muted);
-  line-height: 1.55;
-}
-.login-first-time .lft-body p { margin: 0 0 8px; }
-.login-first-time .lft-body p:last-child { margin-bottom: 0; }
-.login-first-time .lft-pw {
-  display: inline-block;
-  background: var(--bg-surface);
-  color: var(--fg-strong);
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  padding: 3px 10px;
-  font-size: 14px;
-  font-weight: 600;
-}
 
 /* =========================================================================
    KPI CARDS
