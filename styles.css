@@ -753,10 +753,40 @@ tbody tr.health-edge-OffTrack > td:first-child { border-left-color: var(--status
 .row-marker.blocked { color: #b3261e; }
 .review-due { color: var(--status-hold-fg); font-weight: 600; }
 
-/* Dependency chips */
+/* Dependency / blocker chips */
 .dep { display: inline-block; padding: 1px 8px; border-radius: var(--radius-pill); font-size: 12px; margin: 0 4px 4px 0; }
 .dep-open { background: var(--status-hold-bg); color: var(--status-hold-fg); }
 .dep-done { background: var(--status-cancelled-bg); color: var(--status-cancelled-fg); }
+.dep-decision { background: var(--danger-bg); color: var(--danger-fg); }
+/* Chips rendered as <button> (clickable blockers) — strip the UA button look */
+button.dep { border: 0; font-family: inherit; line-height: inherit; cursor: pointer; }
+button.dep:hover { filter: brightness(0.94); }
+button.dep:focus-visible { outline: 2px solid var(--indigo); outline-offset: 1px; }
+
+/* "Blocked by" section in the expanded row */
+.blocked-by { margin-top: 12px; }
+.blocked-by-head {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--danger-fg);
+  font-weight: 700;
+  margin-bottom: 7px;
+}
+.blocked-more {
+  display: block;
+  margin-top: 2px;
+  padding: 0;
+  background: none;
+  border: 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--fg-muted);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.blocked-more:hover { color: var(--indigo); }
 
 /* Roadmap by quarter */
 .roadmap { display: flex; flex-direction: column; gap: 12px; }

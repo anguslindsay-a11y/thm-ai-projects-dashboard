@@ -78,6 +78,7 @@ const ICONS = {
   inbox:   '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/>',
   check:   '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
   alert:   '<path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+  ban:     '<circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/>',
   table:   '<rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 21V9"/>',
   flag:    '<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><path d="M4 22V4"/>',
   plus:    '<path d="M12 5v14M5 12h14"/>',
@@ -176,15 +177,27 @@ function blockersFor(p) {
     .map(id => projects.find(x => x.id === id))
     .filter(d => d && d.status !== 'Live' && d.status !== 'Cancelled');
 }
-// Render a project's dependencies as chips (open blockers highlighted).
-function depNames(p) {
-  if (!p.depends_on || !p.depends_on.length) return '';
-  return p.depends_on.map(id => {
-    const d = projects.find(x => x.id === id);
-    if (!d) return '';
-    const open = d.status !== 'Live' && d.status !== 'Cancelled';
-    return `<span class="dep ${open ? 'dep-open' : 'dep-done'}">${escapeHTML(d.project_name)}</span>`;
-  }).filter(Boolean).join(' ');
+// Truncate for chip display — full text stays in tooltips.
+function truncate(s, n) {
+  s = String(s ?? '');
+  return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s;
+}
+// Unified blocker model: unfinished dependencies + open Blocking decisions
+// linked to this project. Returns [{ kind: 'dep'|'decision', label, full, id }].
+// Viewers can't read `decisions` (RLS) so the decision half is simply empty for
+// them — degrades to dependency-only with no errors.
+function allBlockersFor(p) {
+  const deps = blockersFor(p)
+    .map(d => ({ kind: 'dep', label: d.project_name, full: d.project_name, id: d.id }));
+  const decs = decisions
+    .filter(d => !d.resolved_at && d.urgency === 'Blocking' && d.related_project_id === p.id)
+    .map(d => ({ kind: 'decision', label: truncate(d.decision_needed, 60), full: d.decision_needed, id: d.id }));
+  return deps.concat(decs);
+}
+// Open decisions linked to this project that are NOT Blocking — surfaced as a
+// muted "+ N open decisions" line under the Blocked-by chips.
+function openNonBlockingDecisionsFor(p) {
+  return decisions.filter(d => !d.resolved_at && d.related_project_id === p.id && d.urgency !== 'Blocking');
 }
 // "Review due" = active project reviewed once but not in 30+ days (never-reviewed
 // stays quiet so the whole list doesn't light up before the cadence starts).
@@ -450,6 +463,7 @@ function subscribeRealtime() {
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_decisions' }, async () => {
       await fetchDecisions();
       renderDecisions();
+      render();   // Blocking decisions feed the projects view (⛔ markers, Blocked KPI/filter)
     })
     .subscribe();
 }
@@ -466,6 +480,7 @@ function presetMatch(preset, p) {
     case 'queued':     return p.status === 'Backlog' || p.status === 'Discovery';
     case 'attention':  return isOverdue(p) || (p.priority === 'High' && p.status !== 'Live' && p.status !== 'Cancelled');
     case 'stale':      return isStale(p);
+    case 'blocked':    return allBlockersFor(p).length > 0;
     default:           return true;
   }
 }
@@ -516,18 +531,20 @@ function renderKPIs() {
   const inProg = projects.filter(p => p.status === 'In Progress' || p.status === 'In Review').length;
   const queued = projects.filter(p => p.status === 'Backlog' || p.status === 'Discovery').length;
   const attn   = projects.filter(p => isOverdue(p) || (p.priority === 'High' && p.status !== 'Live' && p.status !== 'Cancelled')).length;
+  const blocked = projects.filter(p => allBlockersFor(p).length > 0).length;
   const tiles = [
     { key: '',           label: 'All projects',    n: projects.length, tone: 'total',    ico: 'grid' },
     { key: 'inprogress', label: 'In progress',     n: inProg,          tone: 'progress', ico: 'clock' },
     { key: 'queued',     label: 'In the queue',    n: queued,          tone: 'queue',    ico: 'inbox' },
     { key: 'live',       label: 'Live',            n: live,            tone: 'live',     ico: 'check' },
     { key: 'attention',  label: 'Needs attention', n: attn,            tone: 'attn',     ico: 'alert' },
+    { key: 'blocked',    label: 'Blocked',         n: blocked,         tone: 'attn',     ico: 'ban' },
   ];
   const noFilters = !filterState.preset && !filterState.status;
   const kpis = document.getElementById('kpis');
   kpis.innerHTML = tiles.map(t => {
     const active = (t.key && t.key === filterState.preset) || (t.key === '' && noFilters) ? 'active' : '';
-    const alert = (t.key === 'attention' && t.n > 0) ? ' data-alert="1"' : '';
+    const alert = ((t.key === 'attention' || t.key === 'blocked') && t.n > 0) ? ' data-alert="1"' : '';
     return `<div class="kpi ${active}" data-preset="${t.key}" data-tone="${t.tone}"${alert}><span class="kpi-ic">${ic(t.ico)}</span><span class="num" data-count="${t.n}">${t.n}</span><span class="label">${escapeHTML(t.label)}</span></div>`;
   }).join('');
   kpis.querySelectorAll('.kpi').forEach(el => {
@@ -542,6 +559,7 @@ function renderKPIs() {
     });
   });
   document.getElementById('stale-toggle').classList.toggle('active', filterState.preset === 'stale');
+  document.getElementById('blocked-toggle').classList.toggle('active', filterState.preset === 'blocked');
   document.getElementById('header-meta').textContent =
     `${projects.length} projects · ${live} live · ${inProg} in progress`;
   if (!kpisAnimated && projects.length) { animateCounts(); kpisAnimated = true; }
@@ -555,6 +573,50 @@ function signoffsFor(pid) {
 function confirmLiveWithoutSignoff(pid) {
   if (signoffsFor(pid).some(s => s.signoff_type === 'project_ship')) return true;
   return confirm('Going live without a leadership sign-off — proceed?');
+}
+
+// "Blocked by" block for the expanded row. One coherent section: open
+// dependency chips (click → edit that project; no-op for non-admins),
+// Blocking-decision chips (click → Decisions view, pre-filtered), satisfied
+// dependencies folded in as muted done chips, plus a "+ N open decisions" line
+// for linked non-blocking decisions. Renders nothing when nothing blocks and
+// no open decisions are linked.
+function blockedBySection(p) {
+  const blockers = allBlockersFor(p);
+  const nonBlocking = openNonBlockingDecisionsFor(p).length;
+  const moreLine = nonBlocking
+    ? `<button type="button" class="blocked-more" data-decisions-view="1">+ ${nonBlocking} open decision${nonBlocking === 1 ? '' : 's'} on this project</button>`
+    : '';
+  if (!blockers.length) return moreLine ? `<div class="blocked-by">${moreLine}</div>` : '';
+  const chips = blockers.map(b => b.kind === 'dep'
+    ? `<button type="button" class="dep dep-open dep-btn" data-dep-id="${escapeHTML(String(b.id))}" title="${escapeHTML('[dependency] ' + b.full + (isAdmin() ? '\nClick to open this project' : ''))}">${escapeHTML(b.label)}</button>`
+    : `<button type="button" class="dep dep-decision dep-btn" data-blocking-decision-id="${escapeHTML(String(b.id))}" title="${escapeHTML('[decision] ' + b.full + '\nClick to view in Decisions')}">${escapeHTML(b.label)}</button>`
+  ).join(' ');
+  // Satisfied dependencies keep their old done-chip rendering, folded in here.
+  const doneChips = (p.depends_on || []).map(id => {
+    const d = projects.find(x => x.id === id);
+    return (d && (d.status === 'Live' || d.status === 'Cancelled'))
+      ? `<span class="dep dep-done" title="${escapeHTML(d.status + ' — no longer blocking')}">${escapeHTML(d.project_name)}</span>`
+      : '';
+  }).filter(Boolean).join(' ');
+  return `<div class="blocked-by">
+    <div class="blocked-by-head">⛔ Blocked by</div>
+    <div class="blocked-by-chips">${chips}${doneChips ? ' ' + doneChips : ''}</div>
+    ${moreLine}
+  </div>`;
+}
+
+// Jump to the Decisions view focused on one decision: pre-fill the search box
+// with the decision text so the list filters down to it. Typing in the box
+// afterwards replaces/clears the pre-fill via the normal search handler.
+function gotoDecision(id) {
+  showView('decisions');
+  const d = decisions.find(x => x.id === id);
+  if (!d) return;
+  decisionsFilter.search = d.decision_needed || '';
+  const box = document.getElementById('decisions-search');
+  if (box) box.value = decisionsFilter.search;
+  renderDecisions();
 }
 
 function renderTable() {
@@ -604,11 +666,15 @@ function renderTable() {
            <div class="notes-body">${escapeHTML(p.notes)}</div>
          </div>`
       : '';
+    const blockers = allBlockersFor(p);
+    const blockedTitle = blockers.length
+      ? 'Blocked by:\n' + blockers.map(b => `[${b.kind === 'dep' ? 'dependency' : 'decision'}] ${b.full}`).join('\n')
+      : '';
     const rowMarkers =
       (p.deliverable_url ? ` <span class="row-marker deliv" title="${escapeHTML(deliverableLabel(p.deliverable_url))}">↗</span>` : '') +
       (sos.length ? ` <span class="row-marker signed" title="Signed off (${sos.length})">✓</span>` : '') +
       (isStale(p) ? ` <span class="row-marker stale" title="No updates in 30+ days">💤</span>` : '') +
-      (blockersFor(p).length ? ` <span class="row-marker blocked" title="Blocked by ${blockersFor(p).length} unfinished dependency">⛔</span>` : '');
+      (blockers.length ? ` <span class="row-marker blocked" title="${escapeHTML(blockedTitle)}">⛔${blockers.length > 1 ? blockers.length : ''}</span>` : '');
     return `
       <tr data-id="${p.id}" class="main-row${HEALTH_EDGE_CLASS[p.health] ? ' ' + HEALTH_EDGE_CLASS[p.health] : ''}" tabindex="0" aria-expanded="false">
         <td class="project-name" style="box-shadow: inset 3px 0 0 ${themeColor(p.theme)}">
@@ -628,6 +694,7 @@ function renderTable() {
         <td colspan="6"><div class="exp-inner">
           <div class="desc">${escapeHTML(p.description || '—')}</div>
           ${deliverableBlock}
+          ${blockedBySection(p)}
           <div class="grid">
             <div><div class="field-label">Priority</div><div class="field-value">${priorityPill(p.priority) || '—'}</div></div>
             <div><div class="field-label">Score (impact+ease+fit)</div><div class="field-value" title="Impact + Ease + Strategic Fit, each rated 1–5">${p.score == null ? '—' : p.score}/15</div></div>
@@ -637,7 +704,6 @@ function renderTable() {
             <div><div class="field-label">Risk Flags</div><div class="field-value">${renderRiskFlags(p.risk_flags) || '—'}</div></div>
             <div><div class="field-label">Updated</div><div class="field-value">${formatWhen(p.updated_at)}</div></div>
             <div><div class="field-label">Health</div><div class="field-value">${p.health ? `<span class="${healthClass(p.health)}">${escapeHTML(p.health)}</span>` : '—'}</div></div>
-            <div><div class="field-label">Depends on</div><div class="field-value">${depNames(p) || '—'}</div></div>
             <div><div class="field-label">Last reviewed</div><div class="field-value">${p.last_reviewed_at ? formatWhen(p.last_reviewed_at) + (reviewDue(p) ? ` <span class="review-due">· review due</span>` : '') : 'Not yet reviewed'}</div></div>
           </div>
           ${(p.risk_tier || p.data_handled || p.human_in_the_loop || p.rollback_plan) ? `
@@ -712,6 +778,26 @@ function renderTable() {
       if (action === 'review')  markReviewed(id);
       if (action === 'history') toggleHistory(id);
     });
+  });
+
+  // Blocked-by chips: dep chips open that project's edit modal (admins only —
+  // openProjectModal also self-guards, so this is a safe no-op for everyone
+  // else); decision chips jump to the Decisions view pre-filtered; the muted
+  // "+ N open decisions" line just switches view.
+  tbody.querySelectorAll('.dep-btn[data-dep-id]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      if (isAdmin()) openProjectModal(btn.dataset.depId);
+    });
+  });
+  tbody.querySelectorAll('.dep-btn[data-blocking-decision-id]').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();
+      gotoDecision(btn.dataset.blockingDecisionId);
+    });
+  });
+  tbody.querySelectorAll('.blocked-more').forEach(btn => {
+    btn.addEventListener('click', e => { e.stopPropagation(); showView('decisions'); });
   });
 
   // file-path deliverables: copy to clipboard (file:// anchors are dead on https)
@@ -1287,7 +1373,7 @@ function loadFilters() {
   const sortable = ['project_name', 'status', 'owners', 'progress', 'target_date', 'priority'];
   if (!sortable.includes(filterState.sortBy)) { filterState.sortBy = 'priority'; filterState.sortDir = 'asc'; }
   if (!['asc', 'desc'].includes(filterState.sortDir)) filterState.sortDir = 'asc';
-  if (!['', 'live', 'inprogress', 'queued', 'attention', 'stale'].includes(filterState.preset)) filterState.preset = '';
+  if (!['', 'live', 'inprogress', 'queued', 'attention', 'stale', 'blocked'].includes(filterState.preset)) filterState.preset = '';
 }
 
 // --- Active-tab persistence (URL ?v= still wins — see mountApp) ---
@@ -1367,7 +1453,7 @@ function attachEvents() {
     filterState = { search: '', theme: '', status: '', owner: '', priority: '', preset: '', mine: false, sortBy: 'priority', sortDir: 'asc' };
     document.getElementById('search').value = '';
     ['theme','status','owner','priority'].forEach(k => document.getElementById(k + '-filter').value = '');
-    document.querySelectorAll('.vt-btn, #mine-toggle, #stale-toggle').forEach(b => b.classList && b.classList.remove('active'));
+    document.querySelectorAll('.vt-btn, #mine-toggle, #stale-toggle, #blocked-toggle').forEach(b => b.classList && b.classList.remove('active'));
     saveFilters();
     updateSortIndicators();
     render();
@@ -1381,6 +1467,13 @@ function attachEvents() {
   });
   document.getElementById('stale-toggle').addEventListener('click', () => {
     filterState.preset = filterState.preset === 'stale' ? '' : 'stale';
+    filterState.status = '';   // a preset owns the status dropdown
+    document.getElementById('status-filter').value = '';
+    saveFilters();
+    render();
+  });
+  document.getElementById('blocked-toggle').addEventListener('click', () => {
+    filterState.preset = filterState.preset === 'blocked' ? '' : 'blocked';
     filterState.status = '';   // a preset owns the status dropdown
     document.getElementById('status-filter').value = '';
     saveFilters();
@@ -2331,6 +2424,17 @@ function openDecisionModal(id) {
   document.getElementById('d-urgency').value = d?.urgency || 'Soon';
   document.getElementById('d-who_decides').value = d?.who_decides || '';
   document.getElementById('d-decision_needed').value = d?.decision_needed || '';
+  // Project picker — rebuilt on every open so new projects appear. Blank option
+  // = cross-cutting / not tied to one project. If the stored id no longer
+  // matches a project, the select falls back to blank (assigning a value with
+  // no matching <option> leaves selectedIndex unset; normalize to '').
+  const relSel = document.getElementById('d-related_project_id');
+  relSel.innerHTML = '<option value="">— none / cross-cutting —</option>' + projects
+    .slice().sort((a, b) => a.project_name.localeCompare(b.project_name))
+    .map(x => `<option value="${escapeHTML(String(x.id))}">${escapeHTML(x.project_name)}</option>`)
+    .join('');
+  relSel.value = d?.related_project_id || '';
+  if (relSel.selectedIndex < 0) relSel.value = '';
   document.getElementById('d-related_project_text').value = d?.related_project_text || '';
   document.getElementById('d-notes_context').value = d?.notes_context || '';
   document.getElementById('d-resolution_notes').value = d?.resolution_notes || '';
@@ -2345,11 +2449,17 @@ async function saveDecision(resolve) {
   const g = id => document.getElementById(id).value.trim();
   const err = document.getElementById('decision-err');
   if (!g('d-decision_needed')) { err.textContent = 'Decision needed is required.'; err.style.display = 'block'; return; }
+  const relatedId = document.getElementById('d-related_project_id').value || null;
+  // When a project is picked and the free text is empty, auto-fill the text with
+  // the project name so text-only surfaces (CSV, email drafts) stay readable.
+  const relatedText = g('d-related_project_text')
+    || (relatedId ? (projects.find(p => p.id === relatedId)?.project_name ?? '') : '');
   const payload = {
     urgency:              g('d-urgency'),
     decision_needed:      g('d-decision_needed'),
     who_decides:          g('d-who_decides') || null,
-    related_project_text: g('d-related_project_text') || null,
+    related_project_id:   relatedId,
+    related_project_text: relatedText || null,
     notes_context:        g('d-notes_context') || null,
     resolution_notes:     g('d-resolution_notes') || null,
   };
@@ -2369,6 +2479,7 @@ async function saveDecision(resolve) {
   dismissModal(document.getElementById('decision-modal'));
   editingDecisionId = null;
   await fetchDecisions(); renderDecisions();
+  render();   // Blocking decisions feed the projects view (⛔ markers, Blocked KPI/filter)
   showToast(resolve ? 'Marked resolved' : 'Decision saved');
 }
 
@@ -2381,6 +2492,7 @@ async function deleteDecision() {
   dismissModal(document.getElementById('decision-modal'));
   editingDecisionId = null;
   await fetchDecisions(); renderDecisions();
+  render();   // Blocking decisions feed the projects view (⛔ markers, Blocked KPI/filter)
   showToast('Decision deleted');
 }
 
