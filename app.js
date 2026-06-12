@@ -1,3 +1,9 @@
+// Clickjacking guard: GitHub Pages can't send X-Frame-Options, and CSP
+// frame-ancestors is ignored in a <meta> tag, so bust out of any frame.
+if (self !== top) {
+  try { top.location = self.location; } catch (_) { document.documentElement.style.display = 'none'; }
+}
+
 // ============================================================================
 // CONFIG
 // ============================================================================
@@ -1167,16 +1173,20 @@ function animateCounts() {
 
 // Load a CDN script once, on demand (keeps initial page load light).
 const _scriptPromises = {};
-function loadScript(src) {
+function loadScript(src, integrity) {
   if (_scriptPromises[src]) return _scriptPromises[src];
   _scriptPromises[src] = new Promise((resolve, reject) => {
     const s = document.createElement('script');
     s.src = src; s.onload = resolve; s.onerror = reject;
+    if (integrity) { s.integrity = integrity; s.crossOrigin = 'anonymous'; }
     document.head.appendChild(s);
   });
   return _scriptPromises[src];
 }
-const ensureConfetti = () => loadScript('https://cdn.jsdelivr.net/npm/canvas-confetti@1');
+const ensureConfetti = () => loadScript(
+  'https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.4',
+  'sha384-JSZXO0kKYHTylAsDYTb+7Kg2eUyalm19b8Pydcdf8sQ1cCKYZr9lLahoKT9+LFY5',
+);
 
 // Celebratory burst when a project ships (loads the lib on first use).
 async function fireConfetti() {
