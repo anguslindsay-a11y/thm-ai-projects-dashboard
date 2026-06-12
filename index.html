@@ -117,6 +117,7 @@
       </select>
       <button class="btn secondary" id="mine-toggle">My work</button>
       <button class="btn secondary" id="stale-toggle" title="Projects with no updates in 30+ days">💤 Needs attention</button>
+      <button class="btn secondary" id="blocked-toggle" title="Projects with an unfinished dependency or an open Blocking decision">⛔ Blocked</button>
       <button class="btn" id="export-csv">Export CSV</button>
       <button class="btn secondary" id="reset-filters">Reset</button>
     </section>
@@ -500,7 +501,13 @@
           <textarea id="d-decision_needed" required style="min-height:60px"></textarea>
         </div>
         <div class="full">
-          <label for="d-related_project_text">Related project</label>
+          <label for="d-related_project_id">Related project</label>
+          <select id="d-related_project_id">
+            <option value="">— none / cross-cutting —</option>
+          </select>
+        </div>
+        <div class="full">
+          <label for="d-related_project_text">Related project (free text / multiple)</label>
           <input id="d-related_project_text" placeholder="Project name or 'ALL projects'">
         </div>
         <div class="full">
