@@ -33,12 +33,17 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } },
     );
 
-    // RLS restricts ai_projects reads to admins — so this both fetches data and authorizes.
+    // Authorize explicitly so we can tell "not an admin" apart from "admin,
+    // but the registry is empty" — RLS alone makes both look like zero rows.
+    const { data: isAdmin, error: adminErr } = await supabase.rpc('is_admin');
+    if (adminErr) { console.error('is_admin check failed:', adminErr.message); return json({ error: 'Could not verify access.' }, 500); }
+    if (!isAdmin) return json({ error: 'Not authorized.' }, 403);
+
     const { data: projects, error } = await supabase
       .from('ai_projects')
       .select('project_name, theme, status, owners, progress, target_date, impact, ease, strategic_fit, score, priority, success_metric, risk_flags, description, notes');
-    if (error) return json({ error: error.message }, 400);
-    if (!projects || projects.length === 0) return json({ error: 'Not authorized, or no projects to analyze.' }, 403);
+    if (error) { console.error('ask-portfolio select failed:', error.message); return json({ error: 'Could not load the portfolio.' }, 400); }
+    if (!projects || projects.length === 0) return json({ answer: 'There are no projects in the registry yet, so there is nothing to analyze.' });
 
     const apiKey = Deno.env.get('ANTHROPIC_API_KEY');
     if (!apiKey) return json({ error: 'ANTHROPIC_API_KEY is not set on the function.' }, 500);
@@ -60,12 +65,15 @@ Deno.serve(async (req) => {
         max_tokens: 900,
         messages: [{ role: 'user', content: prompt }],
       }),
+      signal: AbortSignal.timeout(20000),   // don't let a hung upstream burn the whole function budget
     });
     if (!resp.ok) return json({ error: `Anthropic API error ${resp.status}` }, 502);
     const out = await resp.json();
-    const answer = out?.content?.[0]?.text ?? 'No answer returned.';
+    // Find the text block by type rather than assuming content[0].
+    const answer = out?.content?.find((b: { type?: string }) => b.type === 'text')?.text ?? 'No answer returned.';
     return json({ answer });
   } catch (e) {
-    return json({ error: String(e) }, 500);
+    console.error('ask-portfolio error:', e);
+    return json({ error: 'Something went wrong answering that. Please try again.' }, 500);
   }
 });

@@ -440,7 +440,11 @@ function subscribeRealtime() {
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
   realtimeChannel = sb.channel('ai_projects_changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_projects' }, payload => {
-      if (payload.eventType === 'INSERT') projects.push(payload.new);
+      if (payload.eventType === 'INSERT') {
+        // Dedup: the saver already merged its own row locally in saveProject,
+        // so its own INSERT echo must not add a second copy (C1).
+        if (!projects.some(p => p.id === payload.new.id)) projects.push(payload.new);
+      }
       else if (payload.eventType === 'UPDATE') {
         const i = projects.findIndex(p => p.id === payload.new.id);
         if (i >= 0) projects[i] = payload.new;
@@ -465,7 +469,16 @@ function subscribeRealtime() {
       renderDecisions();
       render();   // Blocking decisions feed the projects view (⛔ markers, Blocked KPI/filter)
     })
-    .subscribe();
+    .subscribe((status) => {
+      // On first connect AND on every reconnect, refetch so changes missed
+      // during the gap between the initial snapshot and the channel going
+      // live (or during a dropout) are picked up (C6). Idempotent.
+      if (status === 'SUBSCRIBED') {
+        Promise.all([fetchProjects(), fetchDecisions(), fetchIntake(), fetchSignoffs()])
+          .then(() => { render(); renderDecisions(); renderIntake(); })
+          .catch(() => {});
+      }
+    });
 }
 
 // ============================================================================
@@ -1182,7 +1195,7 @@ function showToast(msg, kind = 'ok', action) {
   el.innerHTML = ic(kind === 'ok' ? 'check' : 'alert') + `<span>${escapeHTML(msg)}</span>`;
   let life = 3200;
   if (action) {
-    life = 6000;
+    life = 5000;   // matches the delete grace window so Undo never outlives the commit (C2)
     const b = document.createElement('button');
     b.className = 'toast-action';
     b.textContent = action.label;
@@ -1352,7 +1365,8 @@ function writeURL() {
 }
 function readURL() {
   const pr = new URLSearchParams(location.search);
-  if (pr.get('v')) currentView = pr.get('v');
+  const v = pr.get('v');
+  if (v && VIEWS.includes(v)) currentView = v;   // ignore bogus ?v= that would blank the main area (C4)
   const f = filterState;
   f.search   = pr.get('q') || f.search;
   f.theme    = pr.get('theme') || f.theme;
@@ -1378,10 +1392,11 @@ function loadFilters() {
 
 // --- Active-tab persistence (URL ?v= still wins — see mountApp) ---
 const VIEW_KEY = 'thm_ai_view_v1';
+const VIEWS = ['projects', 'intake', 'decisions', 'insights'];
 function loadView() {
   try {
     const v = localStorage.getItem(VIEW_KEY);
-    if (['projects', 'intake', 'decisions', 'insights'].includes(v)) currentView = v;
+    if (VIEWS.includes(v)) currentView = v;
   } catch (_) {}
 }
 function applyFilterUI() {
@@ -1802,6 +1817,9 @@ async function saveProject(e) {
   const promoteLink = (!wasEditing && res.data) ? promotingIntakeId : null;
   // Merge the saved row locally so the edit shows even if realtime is down.
   if (res.data) {
+    // This edit wrote a new audit row; drop the cached history so the next
+    // open refetches it even if realtime is disconnected (C3).
+    delete audit[res.data.id];
     const i = projects.findIndex(p => p.id === res.data.id);
     if (i >= 0) projects[i] = { ...projects[i], ...res.data };
     else projects.push(res.data);
@@ -1865,6 +1883,9 @@ function deleteProject() {
   showToast(`Deleted "${p.project_name}"`, 'ok', {
     label: 'Undo',
     fn: () => {
+      // If the grace timer already fired, the row is committed-deleted in the
+      // DB — re-adding it locally would be a phantom that 404s on edit (C2).
+      if (!pendingDeletes.has(id)) return;
       clearTimeout(timer);
       pendingDeletes.delete(id);
       if (!projects.some(x => x.id === id)) { projects.push(p); populateFilters(); render(); }
@@ -2164,12 +2185,16 @@ function openIntakeDecision(id) {
 
 async function saveIntakeDecision(e) {
   e.preventDefault();
+  const decision = document.getElementById('id-decision').value;
+  const isPending = decision === 'pending';
   const payload = {
-    leadership_decision: document.getElementById('id-decision').value,
+    leadership_decision: decision,
     decision_notes:      document.getElementById('id-notes').value.trim() || null,
-    decided_by:          profile.id,
-    decided_by_name:     profile.display_name,
-    decided_at:          new Date().toISOString(),
+    // Resetting to pending must clear the prior stamps, or the UI reads
+    // "pending — Name · date" (C5).
+    decided_by:          isPending ? null : profile.id,
+    decided_by_name:     isPending ? null : profile.display_name,
+    decided_at:          isPending ? null : new Date().toISOString(),
   };
   const btn = document.querySelector('#intake-decision-form .btn-save');
   btn.disabled = true;
