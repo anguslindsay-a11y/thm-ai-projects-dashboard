@@ -81,7 +81,6 @@
       <div class="user-menu-wrap">
         <button class="btn-header" id="user-menu-btn" aria-haspopup="true" aria-expanded="false"><span class="who" id="user-name"></span><span class="um-caret" aria-hidden="true">▾</span></button>
         <div class="user-menu" id="user-menu" hidden role="menu">
-          <button class="um-item" id="um-ask" role="menuitem" hidden>Ask the portfolio</button>
           <button class="um-item" id="um-activity" role="menuitem" hidden>Recent activity</button>
           <button class="um-item" id="um-theme" role="menuitem">Dark mode</button>
           <div class="um-sep"></div>
@@ -536,19 +535,12 @@
   </div>
 </div>
 
-<!-- EMAIL DRAFT MODAL (decisions → "Draft email" — AI-written, editable before sending) -->
+<!-- EMAIL DRAFT MODAL (decisions → "Draft email" — template + matched recipients, editable before sending) -->
 <div id="email-modal" class="modal-backdrop">
   <div class="modal" style="max-width:560px" role="dialog" aria-modal="true" aria-labelledby="em-title">
     <h2 id="em-title">Email draft</h2>
     <p class="modal-sub">Review and edit before sending — nothing goes out until you open it in your mail app.</p>
-    <div id="em-loading" class="em-loading" hidden>
-      Writing a plain-English draft…
-      <span class="skel"></span>
-      <span class="skel" style="width:78%"></span>
-      <span class="skel" style="width:62%"></span>
-    </div>
-    <form id="em-form" hidden>
-      <div id="em-note" class="em-note" hidden>AI draft unavailable — this is the basic template. Edit before sending.</div>
+    <form id="em-form">
       <div class="form-grid">
         <div class="full">
           <label for="em-to">To</label>
@@ -600,26 +592,6 @@
   </div>
 </div>
 
-<!-- ASK THE PORTFOLIO (AI) -->
-<div id="ask-modal" class="modal-backdrop">
-  <div class="modal" style="max-width:640px" role="dialog" aria-modal="true" aria-labelledby="ask-title">
-    <h2 id="ask-title">✦ Ask the portfolio</h2>
-    <p class="modal-sub">Ask anything about your projects — Claude answers from the live data.</p>
-    <form id="ask-form">
-      <textarea id="ask-q" placeholder="e.g. What's at risk right now?" style="min-height:64px"></textarea>
-      <div class="ask-examples">
-        <button type="button" class="ask-chip">What's at risk right now?</button>
-        <button type="button" class="ask-chip">Which high-priority projects are unowned?</button>
-        <button type="button" class="ask-chip">Summarize what's launching this quarter.</button>
-      </div>
-      <div id="ask-answer" class="ask-answer" hidden></div>
-      <div class="modal-actions">
-        <button type="button" class="btn-cancel" id="ask-cancel">Close</button>
-        <button type="submit" class="btn-save" id="ask-go">Ask</button>
-      </div>
-    </form>
-  </div>
-</div>
 
 <div id="toasts" class="toasts" aria-live="polite"></div>
 
