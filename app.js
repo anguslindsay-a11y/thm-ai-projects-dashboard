@@ -660,13 +660,14 @@ function gotoDecision(id) {
 }
 
 // A11y for the inline-edit table cells (status/owner/progress/target/priority).
-// Admins get a keyboard-reachable, screen-reader-announced button affordance;
-// non-admins get nothing (the cells aren't interactive for them). `verb` is the
-// action label, `current` the value read aloud.
+// Admins get a screen-reader-announced button affordance. The cells are
+// tabindex -1 (kept OUT of the Tab order so tabbing stays light) and reached
+// with ← / → from the focused row — a roving-tabindex grid pattern, wired in
+// renderTable. Non-admins get nothing (the cells aren't interactive for them).
 function editCellAttrs(verb, current) {
   if (!isAdmin()) return '';
   const label = verb + (current ? ', currently ' + current : '') + '. Press Enter to edit.';
-  return ` tabindex="0" role="button" title="${escapeHTML('Click to ' + verb)}" aria-label="${escapeHTML(label)}"`;
+  return ` tabindex="-1" role="button" title="${escapeHTML('Click to ' + verb)}" aria-label="${escapeHTML(label)}"`;
 }
 
 function renderTable() {
@@ -805,23 +806,38 @@ function renderTable() {
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
     });
     if (isAdmin()) {
-      // Each editable cell opens its inline menu on click OR Enter/Space. The
-      // cells are role=button + tabindex=0 (editCellAttrs) so keyboard users
-      // reach them; stopPropagation keeps the row's expand toggle from firing.
-      const wireCell = (sel, open) => {
-        const cell = row.querySelector(sel);
-        if (!cell) return;
-        const fire = e => { e.stopPropagation(); open(row.dataset.id, cell); };
-        cell.addEventListener('click', fire);
-        cell.addEventListener('keydown', e => {
-          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fire(e); }
-        });
+      // Roving-tabindex group: the row is the only Tab stop; the editable cells
+      // are tabindex -1 (editCellAttrs) and reached with ← / → from the row, so
+      // Tab stays light while every cell is keyboard-operable. Click or
+      // Enter/Space opens a cell's inline menu (which then takes focus).
+      const opens = {                       // keyed in visual column order
+        'status-cell':   (id, cell) => openStatusMenu(id, cell.querySelector('.pill') || cell),
+        'owner-cell':    openOwnerMenu,
+        'progress-cell': openProgressMenu,
+        'target-cell':   openDateMenu,
+        'priority-cell': openPriorityMenu,
       };
-      wireCell('.status-cell',   (id, cell) => openStatusMenu(id, cell.querySelector('.pill') || cell));
-      wireCell('.progress-cell', openProgressMenu);
-      wireCell('.owner-cell',    openOwnerMenu);
-      wireCell('.target-cell',   openDateMenu);
-      wireCell('.priority-cell', openPriorityMenu);
+      const cells = [];
+      const visibleCells = () => cells.filter(c => c.offsetParent !== null);   // skip columns hidden on mobile
+      Object.entries(opens).forEach(([cls, open]) => {
+        const cell = row.querySelector('.' + cls);
+        if (!cell) return;
+        cells.push(cell);
+        cell.addEventListener('click', e => { e.stopPropagation(); open(row.dataset.id, cell); });
+        cell.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(row.dataset.id, cell); }
+          else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            e.preventDefault(); e.stopPropagation();
+            const vis = visibleCells(), i = vis.indexOf(cell);
+            if (e.key === 'ArrowRight') { if (i < vis.length - 1) vis[i + 1].focus(); }
+            else if (i <= 0) row.focus(); else vis[i - 1].focus();
+          }
+        });
+      });
+      // From the focused row, → steps into the first editable cell.
+      row.addEventListener('keydown', e => {
+        if (e.target === row && e.key === 'ArrowRight') { e.preventDefault(); const vis = visibleCells(); if (vis.length) vis[0].focus(); }
+      });
     }
   });
 
@@ -990,6 +1006,7 @@ function openStatusMenu(id, anchor) {
     });
   }));
   closeInlineOnOutside(closeStatusMenu);
+  setTimeout(() => menu.querySelector('.sm-item')?.focus(), 10);   // keyboard-open: move focus into the menu
 }
 
 // Inline progress editing: click a progress bar in the table to drag a slider.
@@ -1095,6 +1112,7 @@ function openOwnerMenu(id, anchor) {
     await optimisticUpdate(id, { owners: [...set] }, { err: "Couldn't update owners" });
   }));
   closeInlineOnOutside(closeOwnerMenu);
+  setTimeout(() => menu.querySelector('.om-item')?.focus(), 10);   // keyboard-open: focus the first owner option
 }
 
 // Inline target-date editing: click the target cell to pick a date.
@@ -1167,6 +1185,7 @@ function openPriorityMenu(id, anchor) {
     });
   }));
   closeInlineOnOutside(closePriorityMenu);
+  setTimeout(() => menu.querySelector('.om-item')?.focus(), 10);   // keyboard-open: focus the first option
 }
 
 // Shimmer placeholder rows while the first fetch is in flight.
