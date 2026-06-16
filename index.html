@@ -77,6 +77,7 @@
     </div>
     <div class="user-block">
       <button class="btn-header btn-primary" id="new-project-btn" style="display:none">New Project</button>
+      <button class="btn-header cmdk-trigger" id="cmdk-hint" hidden title="Search projects &amp; run commands"><span class="ch-label">Search</span><kbd id="cmdk-hint-key">⌘K</kbd></button>
       <div class="user-menu-wrap">
         <button class="btn-header" id="user-menu-btn" aria-haspopup="true" aria-expanded="false"><span class="who" id="user-name"></span><span class="um-caret" aria-hidden="true">▾</span></button>
         <div class="user-menu" id="user-menu" hidden role="menu">
@@ -107,7 +108,7 @@
     <div class="pipeline-wrap" id="pipeline"></div>
 
     <section class="filters">
-      <input type="search" id="search" placeholder="Search project, owner, metric, risk…">
+      <input type="search" id="search" placeholder="Search project, owner, metric, risk…" aria-label="Search projects">
       <select id="theme-filter"><option value="">All Themes</option></select>
       <select id="status-filter"><option value="">All Statuses</option></select>
       <select id="owner-filter"><option value="">All Owners</option></select>
@@ -125,9 +126,10 @@
     </section>
 
     <div class="table-toolbar">
-      <div class="result-count" id="result-count"></div>
+      <div class="result-count" id="result-count" role="status" aria-live="polite"></div>
       <div class="legend">
         <span>Click any row for details</span>
+        <span id="legend-edit" hidden>✎ click a cell to edit inline</span>
         <span><span class="lg deliv">↗</span> deliverable</span>
         <span><span class="lg signed">✓</span> signed off</span>
         <span><span class="lg od">●</span> past due</span>
@@ -162,7 +164,7 @@
         <button class="btn" id="new-intake-btn">Submit a project idea</button>
       </div>
       <section class="filters">
-        <input type="search" id="intake-search" placeholder="Search ideas, problems, submitters…">
+        <input type="search" id="intake-search" placeholder="Search ideas, problems, submitters…" aria-label="Search submissions">
         <select id="intake-status-filter">
           <option value="">All statuses</option>
           <option value="pending">Pending</option>
@@ -171,7 +173,7 @@
           <option value="reject">Rejected</option>
         </select>
       </section>
-      <div class="result-count" id="intake-count"></div>
+      <div class="result-count" id="intake-count" role="status" aria-live="polite"></div>
       <div id="intake-list" class="card-list"></div>
     </div><!-- /view-intake -->
 
@@ -185,7 +187,7 @@
         <button class="btn" id="new-decision-btn" style="display:none">Add decision</button>
       </div>
       <section class="filters">
-        <input type="search" id="decisions-search" placeholder="Search decisions, deciders…">
+        <input type="search" id="decisions-search" placeholder="Search decisions, deciders…" aria-label="Search decisions">
         <select id="decisions-status-filter">
           <option value="">All</option>
           <option value="open">Open</option>
@@ -193,7 +195,7 @@
         </select>
         <button class="btn" id="export-decisions-csv">Export CSV</button>
       </section>
-      <div class="result-count" id="decisions-count"></div>
+      <div class="result-count" id="decisions-count" role="status" aria-live="polite"></div>
       <div id="decisions-list" class="card-list"></div>
     </div><!-- /view-decisions -->
 
@@ -238,6 +240,7 @@
     <p class="modal-sub" id="modal-sub">Changes save to Supabase and propagate to anyone with the dashboard open.</p>
     <form id="project-form">
       <div class="form-grid">
+        <div class="form-divider first"><span class="form-subhead">Basics</span></div>
         <div class="full">
           <label for="f-project_name">Project name *</label>
           <input id="f-project_name" required>
@@ -279,6 +282,7 @@
           <label for="f-target_date">Target date</label>
           <input id="f-target_date" type="date">
         </div>
+        <div class="form-divider"><span class="form-subhead">Prioritization</span></div>
         <div>
           <label for="f-impact">Impact (1–5)</label>
           <input id="f-impact" type="number" min="1" max="5">
@@ -309,6 +313,7 @@
             <option value="Off Track">Off Track</option>
           </select>
         </div>
+        <div class="form-divider"><span class="form-subhead">Planning &amp; links</span></div>
         <div class="full">
           <label for="f-depends_on">Depends on <span style="color:var(--fg-faint); font-weight:500; text-transform:none; letter-spacing:0; font-family:var(--font-body)">(other projects this one is blocked by — hold ⌘/Ctrl to multi-select)</span></label>
           <select id="f-depends_on" multiple size="4"></select>
@@ -317,6 +322,7 @@
           <label for="f-deliverable_url">Deliverable <span style="color:var(--fg-faint); font-weight:500; text-transform:none; letter-spacing:0; font-family:var(--font-body)">(link or file path — live project, doc, OneDrive/SharePoint, or Excel)</span></label>
           <input id="f-deliverable_url" type="text" placeholder="https://…  ·  or  C:\Users\…\Book Planner.xlsx">
         </div>
+        <div class="form-divider"><span class="form-subhead">Details</span></div>
         <div class="full">
           <label for="f-description">Description</label>
           <textarea id="f-description"></textarea>
@@ -329,9 +335,7 @@
           <label for="f-risk_flags">Risk flags (comma-separated)</label>
           <input id="f-risk_flags" placeholder="Human Review, Data Privacy">
         </div>
-        <div class="full" style="border-top:1px solid var(--hairline); padding-top:14px; margin-top:2px">
-          <span class="form-subhead">AI governance</span>
-        </div>
+        <div class="form-divider"><span class="form-subhead">AI governance</span></div>
         <div>
           <label for="f-risk_tier">Risk tier</label>
           <select id="f-risk_tier">
@@ -589,7 +593,7 @@
 <div id="cmdk" class="cmdk-backdrop" hidden>
   <div class="cmdk" role="dialog" aria-modal="true" aria-label="Command palette">
     <div class="cmdk-input-wrap">
-      <input id="cmdk-input" type="text" placeholder="Search projects or run a command…" autocomplete="off" spellcheck="false">
+      <input id="cmdk-input" type="text" placeholder="Search projects or run a command…" autocomplete="off" spellcheck="false" aria-label="Search projects or run a command">
     </div>
     <div id="cmdk-list" class="cmdk-list"></div>
     <div class="cmdk-hint"><span><kbd>↑</kbd><kbd>↓</kbd> move</span><span><kbd>↵</kbd> open</span><span><kbd>esc</kbd> close</span></div>
