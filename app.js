@@ -459,6 +459,23 @@ async function fetchAudit(projectId) {
 // REALTIME
 // ============================================================================
 let realtimeChannel = null;
+// Apply ONE realtime change to an in-memory array in place — add / merge / remove
+// just the row carried in the payload — instead of refetching the whole table on
+// every event (mirrors the ai_projects handler). Re-sorts by the table's fetch
+// key so list order stays correct. Steady-state events are now incremental; the
+// subscribe() resync below remains the (re)connect gap-recovery backstop.
+function applyRowChange(arr, payload, sortKey) {
+  if (payload.eventType === 'DELETE') {
+    const i = arr.findIndex(x => x.id === (payload.old && payload.old.id));
+    if (i >= 0) arr.splice(i, 1);
+    return;
+  }
+  const row = payload.new;
+  const i = arr.findIndex(x => x.id === row.id);
+  if (i >= 0) arr[i] = { ...arr[i], ...row };
+  else arr.push(row);
+  if (sortKey) arr.sort((a, b) => String(b[sortKey] || '').localeCompare(String(a[sortKey] || '')));
+}
 function subscribeRealtime() {
   // Tear down any existing channel first so repeated mounts can't stack duplicates.
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
@@ -483,16 +500,16 @@ function subscribeRealtime() {
       populateFilters();   // a new/removed project may add/drop a theme or owner
       render();
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_signoffs' }, async () => {
-      await fetchSignoffs();
-      render();
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_signoffs' }, payload => {
+      applyRowChange(signoffs, payload, 'signed_at');
+      render();   // ship badges + sign-off markers live on the projects table
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_intake_submissions' }, async () => {
-      await fetchIntake();
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_intake_submissions' }, payload => {
+      applyRowChange(intake, payload, 'submitted_at');
       renderIntake();
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_decisions' }, async () => {
-      await fetchDecisions();
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_decisions' }, payload => {
+      applyRowChange(decisions, payload, 'created_at');
       renderDecisions();
       render();   // Blocking decisions feed the projects view (⛔ markers, Blocked KPI/filter)
     })
