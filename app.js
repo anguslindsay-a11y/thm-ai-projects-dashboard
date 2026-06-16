@@ -168,7 +168,12 @@ function formatWhen(ts) {
   return d.toLocaleString('en-US', opts);
 }
 // --- Portfolio-depth helpers (health / dependencies / review cadence) ---
-function healthClass(h) { return 'pill pill-health-' + (h || '').replace(/\s/g, ''); }
+// Health is a fixed vocabulary. Map each value to a slug from a closed allowlist
+// so a value coming back from the DB/API can never break out of a class
+// attribute. The edit form constrains health to a <select>, but RLS doesn't
+// validate the enum, so we never interpolate the raw string into a class name.
+const HEALTH_SLUG = { 'On Track': 'OnTrack', 'At Risk': 'AtRisk', 'Off Track': 'OffTrack' };
+function healthClass(h) { return 'pill' + (HEALTH_SLUG[h] ? ' pill-health-' + HEALTH_SLUG[h] : ''); }
 // Health → row edge class. Fixed map so an unexpected value can never reach the
 // class attribute; unknown/null health renders no class (transparent edge).
 const HEALTH_EDGE_CLASS = {
@@ -371,7 +376,12 @@ sb.auth.onAuthStateChange((event, s) => {
 // ============================================================================
 // DATA LOADING
 // ============================================================================
+let appMounted = false;
 async function mountApp() {
+  // init() (Google path) and the password-form submit can both reach here;
+  // mounting twice would stack duplicate document listeners + realtime channels.
+  if (appMounted) return;
+  appMounted = true;
   document.getElementById('app').style.display = 'block';
   document.getElementById('user-name').textContent = `${profile.display_name} (${profile.role})`;
   const admin = isAdmin();
@@ -381,6 +391,14 @@ async function mountApp() {
     document.getElementById('um-activity').hidden = false;
     document.getElementById('um-ask').hidden = false;
     document.getElementById('activity-fab').hidden = false;
+    document.getElementById('toasts').classList.add('has-fab');   // lift toasts clear of the corner FAB + its Undo
+    const ch = document.getElementById('cmdk-hint');
+    if (ch) {
+      ch.hidden = false;
+      const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent || '');
+      const k = document.getElementById('cmdk-hint-key'); if (k) k.textContent = isMac ? '⌘K' : 'Ctrl K';
+    }
+    const le = document.getElementById('legend-edit'); if (le) le.hidden = false;
   } else {
     // Intake-only: hide the Projects + Decisions tabs and show a welcome.
     document.getElementById('viewer-banner').style.display = 'block';
@@ -441,6 +459,23 @@ async function fetchAudit(projectId) {
 // REALTIME
 // ============================================================================
 let realtimeChannel = null;
+// Apply ONE realtime change to an in-memory array in place — add / merge / remove
+// just the row carried in the payload — instead of refetching the whole table on
+// every event (mirrors the ai_projects handler). Re-sorts by the table's fetch
+// key so list order stays correct. Steady-state events are now incremental; the
+// subscribe() resync below remains the (re)connect gap-recovery backstop.
+function applyRowChange(arr, payload, sortKey) {
+  if (payload.eventType === 'DELETE') {
+    const i = arr.findIndex(x => x.id === (payload.old && payload.old.id));
+    if (i >= 0) arr.splice(i, 1);
+    return;
+  }
+  const row = payload.new;
+  const i = arr.findIndex(x => x.id === row.id);
+  if (i >= 0) arr[i] = { ...arr[i], ...row };
+  else arr.push(row);
+  if (sortKey) arr.sort((a, b) => String(b[sortKey] || '').localeCompare(String(a[sortKey] || '')));
+}
 function subscribeRealtime() {
   // Tear down any existing channel first so repeated mounts can't stack duplicates.
   if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
@@ -453,7 +488,10 @@ function subscribeRealtime() {
       }
       else if (payload.eventType === 'UPDATE') {
         const i = projects.findIndex(p => p.id === payload.new.id);
-        if (i >= 0) projects[i] = payload.new;
+        // Merge (not replace) and skip rows this user is mid-save on, so a
+        // concurrent edit elsewhere can't clobber an in-flight optimistic
+        // change. Our own write echo (no longer pending) reconciles it fully.
+        if (i >= 0 && !pendingWrites.has(payload.new.id)) projects[i] = { ...projects[i], ...payload.new };
         delete audit[payload.new.id];   // invalidate audit cache for this project
       }
       else if (payload.eventType === 'DELETE') {
@@ -462,16 +500,16 @@ function subscribeRealtime() {
       populateFilters();   // a new/removed project may add/drop a theme or owner
       render();
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_signoffs' }, async () => {
-      await fetchSignoffs();
-      render();
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_signoffs' }, payload => {
+      applyRowChange(signoffs, payload, 'signed_at');
+      render();   // ship badges + sign-off markers live on the projects table
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_intake_submissions' }, async () => {
-      await fetchIntake();
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_intake_submissions' }, payload => {
+      applyRowChange(intake, payload, 'submitted_at');
       renderIntake();
     })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_decisions' }, async () => {
-      await fetchDecisions();
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_decisions' }, payload => {
+      applyRowChange(decisions, payload, 'created_at');
       renderDecisions();
       render();   // Blocking decisions feed the projects view (⛔ markers, Blocked KPI/filter)
     })
@@ -638,6 +676,17 @@ function gotoDecision(id) {
   renderDecisions();
 }
 
+// A11y for the inline-edit table cells (status/owner/progress/target/priority).
+// Admins get a screen-reader-announced button affordance. The cells are
+// tabindex -1 (kept OUT of the Tab order so tabbing stays light) and reached
+// with ← / → from the focused row — a roving-tabindex grid pattern, wired in
+// renderTable. Non-admins get nothing (the cells aren't interactive for them).
+function editCellAttrs(verb, current) {
+  if (!isAdmin()) return '';
+  const label = verb + (current ? ', currently ' + current : '') + '. Press Enter to edit.';
+  return ` tabindex="-1" role="button" title="${escapeHTML('Click to ' + verb)}" aria-label="${escapeHTML(label)}"`;
+}
+
 function renderTable() {
   const tbody = document.getElementById('projects-body');
   const filtered = filterProjects();
@@ -697,17 +746,17 @@ function renderTable() {
     return `
       <tr data-id="${p.id}" class="main-row${HEALTH_EDGE_CLASS[p.health] ? ' ' + HEALTH_EDGE_CLASS[p.health] : ''}" tabindex="0" aria-expanded="false">
         <td class="project-name" style="box-shadow: inset 3px 0 0 ${themeColor(p.theme)}">
-          <div class="project-line"><span class="caret" aria-hidden="true">›</span>${p.health ? `<span class="health-dot health-${p.health.replace(/\s/g, '')}" title="${escapeHTML(p.health)}"></span>` : ''}${escapeHTML(p.project_name)}${rowMarkers}</div>
+          <div class="project-line"><span class="caret" aria-hidden="true">›</span>${HEALTH_SLUG[p.health] ? `<span class="health-dot health-${HEALTH_SLUG[p.health]}" title="${escapeHTML(p.health)}"></span>` : ''}${escapeHTML(p.project_name)}${rowMarkers}</div>
           ${p.theme ? `<div class="project-theme" style="color:${themeColor(p.theme)}">${escapeHTML(p.theme)}</div>` : ''}
         </td>
-        <td class="status-cell"${isAdmin() ? ' title="Click to change status"' : ''}>${statusPill(p.status)}${shipBadge}</td>
-        <td class="owner-cell"${isAdmin() ? ' title="Click to set owners"' : ''}>${ownerTxt}</td>
-        <td class="progress-cell"${isAdmin() ? ' title="Click to set progress"' : ''}>
+        <td class="status-cell"${editCellAttrs('change status', p.status)}>${statusPill(p.status)}${shipBadge}</td>
+        <td class="owner-cell"${editCellAttrs('set owners', (p.owners || []).join(', '))}>${ownerTxt}</td>
+        <td class="progress-cell"${editCellAttrs('set progress', pct + '%')}>
           <div class="progress"><div class="progress-bar" style="width:${pct}%"></div></div>
           <div class="progress-text">${pct}%</div>
         </td>
-        <td class="target-cell"${isAdmin() ? ' title="Click to set target date"' : ''}>${target}</td>
-        <td class="priority-cell"${isAdmin() ? ' title="Click to set priority"' : ''}>${priorityCell}</td>
+        <td class="target-cell"${editCellAttrs('set target date', p.target_date ? formatDate(p.target_date) : 'none')}>${target}</td>
+        <td class="priority-cell"${editCellAttrs('set priority', p.priority || 'none')}>${priorityCell}</td>
       </tr>
       <tr class="expandable-row" data-for="${p.id}">
         <td colspan="6"><div class="exp-inner">
@@ -770,20 +819,42 @@ function renderTable() {
       toggle();
     });
     row.addEventListener('keydown', e => {
-      if (e.target.closest('button')) return;
+      if (e.target !== row) return;   // editable cells + action buttons handle their own keys
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); }
     });
     if (isAdmin()) {
-      const sc = row.querySelector('.status-cell');
-      if (sc) sc.addEventListener('click', e => { e.stopPropagation(); openStatusMenu(row.dataset.id, sc.querySelector('.pill') || sc); });
-      const pc = row.querySelector('.progress-cell');
-      if (pc) pc.addEventListener('click', e => { e.stopPropagation(); openProgressMenu(row.dataset.id, pc); });
-      const oc = row.querySelector('.owner-cell');
-      if (oc) oc.addEventListener('click', e => { e.stopPropagation(); openOwnerMenu(row.dataset.id, oc); });
-      const tc = row.querySelector('.target-cell');
-      if (tc) tc.addEventListener('click', e => { e.stopPropagation(); openDateMenu(row.dataset.id, tc); });
-      const prc = row.querySelector('.priority-cell');
-      if (prc) prc.addEventListener('click', e => { e.stopPropagation(); openPriorityMenu(row.dataset.id, prc); });
+      // Roving-tabindex group: the row is the only Tab stop; the editable cells
+      // are tabindex -1 (editCellAttrs) and reached with ← / → from the row, so
+      // Tab stays light while every cell is keyboard-operable. Click or
+      // Enter/Space opens a cell's inline menu (which then takes focus).
+      const opens = {                       // keyed in visual column order
+        'status-cell':   (id, cell) => openStatusMenu(id, cell.querySelector('.pill') || cell),
+        'owner-cell':    openOwnerMenu,
+        'progress-cell': openProgressMenu,
+        'target-cell':   openDateMenu,
+        'priority-cell': openPriorityMenu,
+      };
+      const cells = [];
+      const visibleCells = () => cells.filter(c => c.offsetParent !== null);   // skip columns hidden on mobile
+      Object.entries(opens).forEach(([cls, open]) => {
+        const cell = row.querySelector('.' + cls);
+        if (!cell) return;
+        cells.push(cell);
+        cell.addEventListener('click', e => { e.stopPropagation(); open(row.dataset.id, cell); });
+        cell.addEventListener('keydown', e => {
+          if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); open(row.dataset.id, cell); }
+          else if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+            e.preventDefault(); e.stopPropagation();
+            const vis = visibleCells(), i = vis.indexOf(cell);
+            if (e.key === 'ArrowRight') { if (i < vis.length - 1) vis[i + 1].focus(); }
+            else if (i <= 0) row.focus(); else vis[i - 1].focus();
+          }
+        });
+      });
+      // From the focused row, → steps into the first editable cell.
+      row.addEventListener('keydown', e => {
+        if (e.target === row && e.key === 'ArrowRight') { e.preventDefault(); const vis = visibleCells(); if (vis.length) vis[0].focus(); }
+      });
     }
   });
 
@@ -842,16 +913,45 @@ function renderTable() {
   });
 }
 
+// Rows with a local write in flight. Realtime echoes for these are skipped (see
+// the UPDATE handler) so a concurrent edit from another user can't clobber an
+// optimistic change mid-save — the row reconciles authoritatively once our own
+// write echoes back, or on the next reconnect refetch.
+const pendingWrites = new Set();
+
+// Apply a patch to a project optimistically, persist it, and roll back exactly
+// the changed fields on failure. Every inline edit + "Mark reviewed" funnels
+// through here so the in-flight guard, the rollback, and updated_by stamping
+// live in one place instead of being copy-pasted (and drifting) per field.
+// `ok`/`err` may be a string or a fn(project|error)->string; `after(project)`
+// runs only on success.
+async function optimisticUpdate(id, patch, { ok, err = "Couldn't save change", after } = {}) {
+  const cur = projects.find(x => x.id === id);
+  if (!cur) return false;
+  const prev = {};
+  for (const k of Object.keys(patch)) prev[k] = cur[k];
+  Object.assign(cur, patch);
+  pendingWrites.add(id);
+  render();
+  const { error } = await sb.from('ai_projects').update({ ...patch, updated_by: profile.id }).eq('id', id);
+  pendingWrites.delete(id);
+  if (error) {
+    const roll = projects.find(x => x.id === id);
+    if (roll) Object.assign(roll, prev);
+    render();
+    showToast(typeof err === 'function' ? err(error) : err, 'err');
+    return false;
+  }
+  if (ok) showToast(typeof ok === 'function' ? ok(cur) : ok);
+  if (after) after(cur);
+  return true;
+}
+
 async function markReviewed(id) {
   if (!isAdmin()) return;
-  const p = projects.find(x => x.id === id);
-  if (!p) return;
-  const ts = new Date().toISOString();
-  p.last_reviewed_at = ts;   // optimistic
-  render();
-  const { error } = await sb.from('ai_projects').update({ last_reviewed_at: ts }).eq('id', id);
-  if (error) showToast("Couldn't mark reviewed: " + error.message, 'err');
-  else showToast('Marked reviewed');
+  await optimisticUpdate(id, { last_reviewed_at: new Date().toISOString() }, {
+    ok: 'Marked reviewed', err: "Couldn't mark reviewed",
+  });
 }
 
 async function loadHistoryInto(box, pid) {
@@ -914,21 +1014,16 @@ function openStatusMenu(id, anchor) {
     // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
     const cur = projects.find(x => x.id === id);
     if (!cur || ns === cur.status) return;
-    const prev = cur.status;
-    const wentLive = ns === 'Live' && prev !== 'Live';
+    const wentLive = ns === 'Live' && cur.status !== 'Live';
     if (wentLive && !confirmLiveWithoutSignoff(id)) return;
-    cur.status = ns;               // optimistic
-    render();
-    const { error } = await sb.from('ai_projects').update({ status: ns, updated_by: profile.id }).eq('id', id);
-    if (error) {
-      const roll = projects.find(x => x.id === id);
-      if (roll) roll.status = prev;
-      render(); showToast("Couldn't update status", 'err'); return;
-    }
-    showToast(wentLive ? '🎉 ' + cur.project_name + ' is now live!' : 'Status updated');
-    if (wentLive) fireConfetti();
+    await optimisticUpdate(id, { status: ns }, {
+      ok: p => wentLive ? '🎉 ' + p.project_name + ' is now live!' : 'Status updated',
+      err: "Couldn't update status",
+      after: () => { if (wentLive) fireConfetti(); },
+    });
   }));
   closeInlineOnOutside(closeStatusMenu);
+  setTimeout(() => menu.querySelector('.sm-item')?.focus(), 10);   // keyboard-open: move focus into the menu
 }
 
 // Inline progress editing: click a progress bar in the table to drag a slider.
@@ -956,19 +1051,9 @@ function openProgressMenu(id, anchor) {
     const val = Number(range.value);
     closeProgressMenu();
     if (val === cur) return;
-    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
-    const proj = projects.find(x => x.id === id);
-    if (!proj) return;
-    const prev = proj.progress;
-    proj.progress = val / 100;       // optimistic
-    render();
-    const { error } = await sb.from('ai_projects').update({ progress: val / 100, updated_by: profile.id }).eq('id', id);
-    if (error) {
-      const roll = projects.find(x => x.id === id);
-      if (roll) roll.progress = prev;
-      render(); showToast("Couldn't update progress", 'err'); return;
-    }
-    showToast(`Progress set to ${val}%`);
+    await optimisticUpdate(id, { progress: val / 100 }, {
+      ok: `Progress set to ${val}%`, err: "Couldn't update progress",
+    });
   });
   closeInlineOnOutside(closeProgressMenu);
   setTimeout(() => range.focus(), 10);
@@ -1035,23 +1120,16 @@ function openOwnerMenu(id, anchor) {
     const cur = projects.find(x => x.id === id);
     if (!cur) return;
     const set = new Set(cur.owners || []);
-    set.has(name) ? set.delete(name) : set.add(name);
-    const next = [...set];
-    const prev = cur.owners;
-    cur.owners = next;
-    const nowOn = set.has(name);
+    const nowOn = !set.has(name);
+    nowOn ? set.add(name) : set.delete(name);
+    // Reflect the toggle on the (still-open) menu button immediately.
     b.classList.toggle('cur', nowOn);
     const svg = b.querySelector('.ic'); if (svg) svg.remove();
     b.insertAdjacentHTML('afterbegin', ic(nowOn ? 'check' : 'circle'));
-    render();
-    const { error } = await sb.from('ai_projects').update({ owners: next, updated_by: profile.id }).eq('id', id);
-    if (error) {
-      const roll = projects.find(x => x.id === id);
-      if (roll) roll.owners = prev;
-      render(); showToast("Couldn't update owners", 'err');
-    }
+    await optimisticUpdate(id, { owners: [...set] }, { err: "Couldn't update owners" });
   }));
   closeInlineOnOutside(closeOwnerMenu);
+  setTimeout(() => menu.querySelector('.om-item')?.focus(), 10);   // keyboard-open: focus the first owner option
 }
 
 // Inline target-date editing: click the target cell to pick a date.
@@ -1076,16 +1154,10 @@ function openDateMenu(id, anchor) {
     // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
     const cur = projects.find(x => x.id === id);
     if (!cur || (val || '') === (cur.target_date || '')) return;
-    const prev = cur.target_date;
-    cur.target_date = val || null;
-    render();
-    const { error } = await sb.from('ai_projects').update({ target_date: val || null, updated_by: profile.id }).eq('id', id);
-    if (error) {
-      const roll = projects.find(x => x.id === id);
-      if (roll) roll.target_date = prev;
-      render(); showToast("Couldn't update target", 'err'); return;
-    }
-    showToast(val ? 'Target set to ' + formatDate(val) : 'Target cleared');
+    await optimisticUpdate(id, { target_date: val || null }, {
+      ok: val ? 'Target set to ' + formatDate(val) : 'Target cleared',
+      err: "Couldn't update target",
+    });
   };
   input.addEventListener('change', () => commit(input.value));
   menu.querySelector('#dm-clear').addEventListener('click', () => commit(''));
@@ -1124,18 +1196,13 @@ function openPriorityMenu(id, anchor) {
     // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
     const cur = projects.find(x => x.id === id);
     if (!cur || (cur.priority || '') === v) return;
-    const prev = cur.priority;
-    cur.priority = v || null;
-    render();
-    const { error } = await sb.from('ai_projects').update({ priority: v || null, updated_by: profile.id }).eq('id', id);
-    if (error) {
-      const roll = projects.find(x => x.id === id);
-      if (roll) roll.priority = prev;
-      render(); showToast("Couldn't update priority", 'err'); return;
-    }
-    showToast(v ? 'Priority set to ' + v : 'Priority cleared');
+    await optimisticUpdate(id, { priority: v || null }, {
+      ok: v ? 'Priority set to ' + v : 'Priority cleared',
+      err: "Couldn't update priority",
+    });
   }));
   closeInlineOnOutside(closePriorityMenu);
+  setTimeout(() => menu.querySelector('.om-item')?.focus(), 10);   // keyboard-open: focus the first option
 }
 
 // Shimmer placeholder rows while the first fetch is in flight.
@@ -1280,9 +1347,10 @@ function renderMatrix() {
     const jx = ((i * 37) % 7 - 3) * 0.9;              // tiny deterministic jitter to de-overlap ties
     const jy = ((i * 53) % 7 - 3) * 0.9;
     const color = `var(${STATUS_VAR[p.status] || '--status-backlog-fg'})`;
+    const lbl = `${p.project_name} — impact ${p.impact}, ease ${p.ease}, fit ${sf}`;
     return `<button type="button" class="mdot" data-id="${escapeHTML(String(p.id))}"
       style="left:calc(${pos(p.ease).toFixed(1)}% + ${jx}px);bottom:calc(${pos(p.impact).toFixed(1)}% + ${jy}px);width:${d}px;height:${d}px;background:${color}"
-      title="${escapeHTML(p.project_name)} — impact ${p.impact}, ease ${p.ease}, fit ${sf}"></button>`;
+      title="${escapeHTML(lbl)}" aria-label="${escapeHTML(lbl)}"></button>`;
   }).join('');
 
   plot.innerHTML = quads + dots;
@@ -1570,6 +1638,8 @@ function attachEvents() {
     userMenuBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
   };
   userMenuBtn.addEventListener('click', e => { e.stopPropagation(); toggleUserMenu(); });
+  const cmdkHintBtn = document.getElementById('cmdk-hint');
+  if (cmdkHintBtn) cmdkHintBtn.addEventListener('click', openCmdk);
   document.addEventListener('click', e => { if (!e.target.closest('.user-menu-wrap')) toggleUserMenu(false); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && !userMenu.hidden) toggleUserMenu(false); });
   const menuAction = (id, fn) => document.getElementById(id).addEventListener('click', () => { toggleUserMenu(false); fn(); });
@@ -1581,7 +1651,12 @@ function attachEvents() {
 
   document.getElementById('activity-close').addEventListener('click', closeActivity);
   document.getElementById('activity-drawer').addEventListener('mousedown', e => { if (e.target.id === 'activity-drawer') closeActivity(); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && !document.getElementById('activity-drawer').hidden) closeActivity(); });
+  document.addEventListener('keydown', e => {
+    const drawer = document.getElementById('activity-drawer');
+    if (drawer.hidden) return;
+    if (e.key === 'Escape') closeActivity();
+    else if (e.key === 'Tab') trapTab(e, drawer.querySelector('.drawer-panel') || drawer);
+  });
   document.getElementById('ask-cancel').addEventListener('click', () => dismissModal(document.getElementById('ask-modal')));
   document.getElementById('ask-form').addEventListener('submit', runAsk);
   document.querySelectorAll('.ask-chip').forEach(c => c.addEventListener('click', () => {
@@ -1603,6 +1678,7 @@ function attachEvents() {
     else if (e.key === 'ArrowUp') { e.preventDefault(); cmdkIndex = Math.max(cmdkIndex - 1, 0); updateCmdkSel(); }
     else if (e.key === 'Enter') { e.preventDefault(); runCmdk(cmdkItems[cmdkIndex]); }
     else if (e.key === 'Escape') { e.preventDefault(); closeCmdk(); }
+    else if (e.key === 'Tab') { e.preventDefault(); }   // keep focus in the palette (input is its only focusable)
   });
   document.getElementById('cmdk').addEventListener('mousedown', e => { if (e.target.id === 'cmdk') closeCmdk(); });
 
@@ -1642,6 +1718,22 @@ function attachEvents() {
 // MODAL PLUMBING (focus, Esc, backdrop-click, scroll-lock) — shared
 // ============================================================================
 let lastFocused = null;
+// Focusable descendants of `container`, in DOM order, visible + enabled. Shared
+// by the modal trap and the command-palette / activity-drawer overlays so Tab
+// can't wander out of an open overlay. getClientRects() (not offsetParent)
+// correctly excludes hidden/collapsed controls, incl. position:fixed ones.
+function getFocusable(container) {
+  return [...container.querySelectorAll('a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter(el => !el.disabled && el.getClientRects().length);
+}
+function trapTab(e, container) {
+  if (e.key !== 'Tab') return;
+  const f = getFocusable(container);
+  if (!f.length) { e.preventDefault(); return; }
+  const first = f[0], last = f[f.length - 1];
+  if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+  else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+}
 // Dirty flags for data-entry modals — set by an 'input' listener (attachEvents),
 // reset on open/save. Backdrop-click / Escape confirm before discarding edits.
 let modalDirty = { 'project-modal': false, 'intake-modal': false };
@@ -1670,14 +1762,7 @@ function initModals() {
     const open = document.querySelector('.modal-backdrop.open');
     if (!open) return;
     if (e.key === 'Escape') { if (!open.dataset.locked && confirmDiscard(open)) dismissModal(open); return; }
-    if (e.key === 'Tab') {
-      const f = [...open.querySelectorAll('input, select, textarea, button')]
-        .filter(el => !el.disabled && el.offsetParent !== null);
-      if (!f.length) return;
-      const first = f[0], last = f[f.length - 1];
-      if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-    }
+    if (e.key === 'Tab') trapTab(e, open);
   });
 }
 
@@ -1858,7 +1943,11 @@ async function saveProject(e) {
 const pendingDeletes = new Map();
 function flushPendingDeletes() {
   if (!pendingDeletes.size) return;
-  const token = session?.access_token || SUPABASE_KEY;
+  // No valid user token → the anon key can't satisfy the delete RLS policy, so
+  // a request would just 401. Leave the grace timers in place to commit normally
+  // (and if the tab truly unloads, the row simply survives — the safe outcome).
+  const token = session?.access_token;
+  if (!token) return;
   pendingDeletes.forEach((timer, id) => {
     clearTimeout(timer);
     fetch(SUPABASE_URL + '/rest/v1/ai_projects?id=eq.' + id, {
@@ -1991,6 +2080,8 @@ function exportCSV() {
 // ============================================================================
 let intake = [];
 let decisions = [];
+let intakeError = null;      // last fetchIntake error, or null — distinguishes "failed to load" from "empty"
+let decisionsError = null;   // last fetchDecisions error, or null
 let currentView = 'projects';
 let intakeDecisionId = null;
 let promotingIntakeId = null;   // set while creating a project from an intake submission
@@ -2045,13 +2136,20 @@ function setBadge(id, n) {
 // ---- Intake ----
 async function fetchIntake() {
   const { data, error } = await sb.from('ai_intake_submissions').select('*').order('submitted_at', { ascending: false });
-  if (error) { console.error(error); showToast("Couldn't load intake submissions", 'err'); return; }
+  if (error) { console.error(error); intakeError = error.message; showToast("Couldn't load intake submissions", 'err'); return; }
+  intakeError = null;
   intake = data;
 }
 
 function renderIntake() {
   updateActivityBadge();
   const list = document.getElementById('intake-list');
+  if (intakeError) {
+    setBadge('intake-badge', 0);
+    document.getElementById('intake-count').textContent = '';
+    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta" style="color:var(--danger-fg)">Couldn't load submissions — ${escapeHTML(intakeError)}<br>Try refreshing. If it persists, your account may not have access.</div></div></div></div>`;
+    return;
+  }
   const pending = intake.filter(s => (s.leadership_decision || 'pending') === 'pending').length;
   setBadge('intake-badge', pending);
 
@@ -2221,7 +2319,8 @@ async function saveIntakeDecision(e) {
 // ---- Decisions ----
 async function fetchDecisions() {
   const { data, error } = await sb.from('ai_decisions').select('*').order('created_at', { ascending: false });
-  if (error) { console.error(error); showToast("Couldn't load decisions", 'err'); return; }
+  if (error) { console.error(error); decisionsError = error.message; showToast("Couldn't load decisions", 'err'); return; }
+  decisionsError = null;
   decisions = data;
 }
 
@@ -2242,6 +2341,12 @@ function filterDecisions() {
 function renderDecisions() {
   updateActivityBadge();
   const list = document.getElementById('decisions-list');
+  if (decisionsError) {
+    setBadge('decisions-badge', 0);
+    document.getElementById('decisions-count').textContent = '';
+    list.innerHTML = `<div class="card"><div class="card-row" style="cursor:default"><div class="card-main"><div class="card-meta" style="color:var(--danger-fg)">Couldn't load decisions — ${escapeHTML(decisionsError)}<br>Try refreshing.</div></div></div></div>`;
+    return;
+  }
   const open = decisions.filter(d => !d.resolved_at).length;
   setBadge('decisions-badge', open);
 
@@ -2549,6 +2654,7 @@ function exportDecisionsCSV() {
 // timestamps already loaded in memory. Surfaced via the corner button (#activity-fab).
 // ============================================================================
 let activityAudit = [];   // last fetched ai_project_audit rows (also feeds the badge)
+let activityLastFocused = null;   // restore focus here when the drawer closes
 
 async function fetchActivity() {
   const { data, error } = await sb.from('ai_project_audit')
@@ -2610,8 +2716,10 @@ function updateActivityBadge() {
 
 async function openActivity() {
   const d = document.getElementById('activity-drawer');
+  activityLastFocused = document.activeElement;
   d.hidden = false;
   document.body.style.overflow = 'hidden';
+  setTimeout(() => { const c = document.getElementById('activity-close'); if (c) c.focus(); }, 30);
   const list = document.getElementById('activity-list');
   list.innerHTML = '<div class="act-empty">Loading…</div>';
   await fetchActivity();
@@ -2627,6 +2735,7 @@ async function openActivity() {
 function closeActivity() {
   document.getElementById('activity-drawer').hidden = true;
   if (!document.querySelector('.modal-backdrop.open')) document.body.style.overflow = '';
+  if (activityLastFocused && activityLastFocused.focus) { try { activityLastFocused.focus(); } catch (_) {} }
 }
 
 // ============================================================================
@@ -2667,7 +2776,7 @@ async function runAsk(e) {
 // ============================================================================
 // COMMAND PALETTE (⌘K)
 // ============================================================================
-let cmdkItems = [], cmdkIndex = 0;
+let cmdkItems = [], cmdkIndex = 0, cmdkLastFocused = null;
 
 function cmdkActions() {
   const a = [
@@ -2702,6 +2811,7 @@ function fuzzy(q, text) {
 
 function openCmdk() {
   const bd = document.getElementById('cmdk');
+  cmdkLastFocused = document.activeElement;   // restore focus here on close
   bd.hidden = false;
   document.body.style.overflow = 'hidden';
   const inp = document.getElementById('cmdk-input');
@@ -2712,6 +2822,7 @@ function openCmdk() {
 function closeCmdk() {
   document.getElementById('cmdk').hidden = true;
   if (!document.querySelector('.modal-backdrop.open')) document.body.style.overflow = '';
+  if (cmdkLastFocused && cmdkLastFocused.focus) { try { cmdkLastFocused.focus(); } catch (_) {} }
 }
 function buildCmdk(q) {
   const items = [];

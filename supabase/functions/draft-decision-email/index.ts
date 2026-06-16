@@ -32,6 +32,13 @@ Deno.serve(async (req) => {
       { global: { headers: { Authorization: req.headers.get('Authorization') ?? '' } } },
     );
 
+    // Authorize explicitly (matches ask-portfolio) so the function fails closed
+    // on its own — even if the ai_decisions RLS read policy is ever loosened,
+    // a non-admin still can't draft emails or burn LLM budget here.
+    const { data: isAdmin, error: adminErr } = await supabase.rpc('is_admin');
+    if (adminErr) { console.error('draft-decision-email: is_admin check failed', adminErr.message); return json({ error: 'Could not verify access.' }, 500); }
+    if (!isAdmin) return json({ error: 'Not authorized.' }, 403);
+
     // RLS restricts ai_decisions reads to admins — this both fetches and authorizes.
     const { data: d, error } = await supabase
       .from('ai_decisions')
@@ -111,6 +118,7 @@ REQUIREMENTS
         },
         messages: [{ role: 'user', content: prompt }],
       }),
+      signal: AbortSignal.timeout(18000),   // stay under the client's 20s abort; don't burn budget on a hung upstream
     });
     if (!resp.ok) {
       console.error('draft-decision-email: Anthropic API error', resp.status, await resp.text());

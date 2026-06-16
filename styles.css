@@ -21,7 +21,7 @@
   --fg-strong:    #0d2038;
   --fg-body:      #1f2c3e;
   --fg-muted:     #5b6878;
-  --fg-faint:     #8b95a3;
+  --fg-faint:     #6b7585;
 
   /* Status semantics — tuned to sit alongside the indigo palette */
   --status-backlog-bg:    #ecebe8;  --status-backlog-fg:    #4a5b72;
@@ -65,7 +65,7 @@
   --fg-strong:    #f2f6fc;
   --fg-body:      #d8e1ef;
   --fg-muted:     #9db0c8;
-  --fg-faint:     #67788f;
+  --fg-faint:     #8a9ab2;
   --hairline:     #2b3b58;
   --paper:        #1b2842;
   --timber-soft:  #243352;
@@ -198,6 +198,13 @@ header .btn-header {
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
 }
 header .btn-header:hover { background: rgba(255,255,255,0.16); border-color: rgba(255,255,255,0.3); }
+header .btn-header.cmdk-trigger { display: inline-flex; align-items: center; gap: 7px; }
+header .btn-header.cmdk-trigger[hidden] { display: none; }
+header .cmdk-trigger kbd {
+  font-family: var(--font-body); font-size: 11px; font-weight: 600; line-height: 1.5;
+  background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.28);
+  border-radius: 5px; padding: 1px 6px; color: #fff;
+}
 header .btn-primary {
   background: #fff;
   color: var(--indigo);
@@ -580,6 +587,11 @@ tbody tr.main-row:focus-visible {
   outline: 2px solid var(--indigo);
   outline-offset: -2px;
 }
+/* Inline-edit cells (admins): role=button + tabindex makes them keyboard-
+   reachable, so signal "click to edit" with a hover frame + a real focus ring,
+   without competing with the row's own hover state. */
+.main-row td[role="button"]:hover { box-shadow: inset 0 0 0 1px var(--indigo); }
+.main-row td[role="button"]:focus-visible { outline: 2px solid var(--indigo); outline-offset: -2px; }
 th .sort-indicator {
   color: var(--indigo);
   margin-left: 6px;
@@ -730,6 +742,9 @@ td.table-empty .table-empty-sub {
 
 /* AI governance facet */
 .form-subhead { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); font-weight: 700; }
+/* Section dividers that chunk the (long) project form into labeled groups. */
+.form-grid .form-divider { grid-column: 1 / -1; border-top: 1px solid var(--hairline); padding-top: 13px; margin-top: 5px; }
+.form-grid .form-divider.first { border-top: 0; padding-top: 0; margin-top: 0; }
 .gov-block { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--hairline); }
 .gov-head { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--fg-muted); font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 8px; }
 .pill-risk-Low    { background: var(--status-live-bg);   color: var(--status-live-fg); }
@@ -870,6 +885,9 @@ button.dep:focus-visible { outline: 2px solid var(--indigo); outline-offset: 1px
    TOASTS
    ========================================================================= */
 .toasts { position: fixed; bottom: 22px; right: 22px; z-index: 200; display: flex; flex-direction: column; gap: 10px; }
+/* Admins have the activity FAB in this corner (22–70px). Lift the stack so a
+   toast — especially the 5s Undo-delete toast — never sits on top of it. */
+.toasts.has-fab { bottom: 84px; }
 .toast {
   display: flex; align-items: center; gap: 9px;
   background: var(--bg-surface); color: var(--fg-strong);
