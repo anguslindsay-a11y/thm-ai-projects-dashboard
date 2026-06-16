@@ -389,7 +389,6 @@ async function mountApp() {
     document.getElementById('new-project-btn').style.display = 'inline-block';
     document.getElementById('new-decision-btn').style.display = 'inline-block';
     document.getElementById('um-activity').hidden = false;
-    document.getElementById('um-ask').hidden = false;
     document.getElementById('activity-fab').hidden = false;
     document.getElementById('toasts').classList.add('has-fab');   // lift toasts clear of the corner FAB + its Undo
     const ch = document.getElementById('cmdk-hint');
@@ -1646,7 +1645,6 @@ function attachEvents() {
   menuAction('um-theme', toggleTheme);
   menuAction('um-activity', openActivity);
   document.getElementById('activity-fab').addEventListener('click', openActivity);
-  menuAction('um-ask', openAsk);
   // (um-signout wired at top level)
 
   document.getElementById('activity-close').addEventListener('click', closeActivity);
@@ -1657,12 +1655,6 @@ function attachEvents() {
     if (e.key === 'Escape') closeActivity();
     else if (e.key === 'Tab') trapTab(e, drawer.querySelector('.drawer-panel') || drawer);
   });
-  document.getElementById('ask-cancel').addEventListener('click', () => dismissModal(document.getElementById('ask-modal')));
-  document.getElementById('ask-form').addEventListener('submit', runAsk);
-  document.querySelectorAll('.ask-chip').forEach(c => c.addEventListener('click', () => {
-    document.getElementById('ask-q').value = c.textContent;
-    runAsk();
-  }));
 
   // Command palette (⌘K / Ctrl-K)
   document.addEventListener('keydown', e => {
@@ -1707,7 +1699,7 @@ function attachEvents() {
   document.querySelectorAll('.viewtab').forEach(t => t.insertAdjacentHTML('afterbegin', ic(TAB_ICON[t.dataset.view] || 'grid')));
   [['new-project-btn','plus'],['new-decision-btn','plus'],['new-intake-btn','plus'],
    ['export-csv','download'],['export-decisions-csv','download'],['reset-filters','reset'],
-   ['um-ask','sparkle'],['um-activity','clock'],['um-signout','logout']].forEach(([id, name]) => {
+   ['um-activity','clock'],['um-signout','logout']].forEach(([id, name]) => {
     const el = document.getElementById(id); if (el) el.insertAdjacentHTML('afterbegin', ic(name));
   });
 
@@ -2431,63 +2423,29 @@ function joinNames(names) {
   return names.slice(0, -1).join(', ') + ' and ' + names[names.length - 1];
 }
 
-let emailDraftSeq = 0;   // guards against a stale AI response landing after a newer draft opened
-
 async function draftDecisionEmail(id) {
   const d = decisions.find(x => x.id === id);
   if (!d) return;
-  const seq = ++emailDraftSeq;
-  const bd = document.getElementById('email-modal');
+  openModal(document.getElementById('email-modal'));
 
-  // Open the modal straight away in its loading state — the AI draft takes a few seconds.
-  document.getElementById('em-loading').hidden = false;
-  document.getElementById('em-form').hidden = true;
-  document.getElementById('em-note').hidden = true;
-  document.getElementById('em-to-hint').hidden = true;
-  openModal(bd);
-
+  // Match the "who decides" tokens to staff emails, then fill from the local
+  // template. No AI call — the draft is editable before anything is sent.
   const profiles = await fetchDeciderProfiles();
-  const tokens = deciderTokens(d.who_decides);
-
   const emails = [], greetNames = [];
-  tokens.forEach(t => {
+  deciderTokens(d.who_decides).forEach(t => {
     const p = matchDeciderProfile(t, profiles);
     if (p && p.email && !emails.includes(p.email)) emails.push(p.email);
     // Greet by matched first name when we found one ("Mel" → "Melanie"), else keep the token.
     greetNames.push(p ? p.display_name.trim().split(/\s+/)[0] : t);
   });
 
-  // Ask Claude (draft-decision-email edge function) to write the email in plain
-  // English; fall back to the local template on any failure or a 20s timeout.
-  let draft = null;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 20000);
-  try {
-    const { data, error } = await sb.functions.invoke('draft-decision-email', {
-      body: {
-        decision_id: id,
-        greeting_names: greetNames,
-        sender_name: (profile.display_name || '').trim().split(/\s+/)[0],
-      },
-      signal: ctrl.signal,
-    });
-    if (!error && data && !data.error && data.subject && data.body) draft = { subject: data.subject, body: data.body };
-  } catch (_) { /* network failure or timeout abort — fall back below */ }
-  clearTimeout(timer);
-  const fellBack = !draft;
-  if (fellBack) draft = buildLocalDraft(d, greetNames);
-
-  if (seq !== emailDraftSeq || !bd.classList.contains('open')) return;   // user moved on meanwhile
-
+  const draft = buildLocalDraft(d, greetNames);
   document.getElementById('em-to').value = emails.join(', ');
   document.getElementById('em-subject').value = draft.subject;
   document.getElementById('em-body').value = draft.body;
-  document.getElementById('em-note').hidden = !fellBack;
   const hint = document.getElementById('em-to-hint');
   hint.hidden = emails.length > 0;
   if (!emails.length) hint.textContent = `Couldn't match '${d.who_decides || '(no deciders)'}' to a staff email — add recipients manually.`;
-  document.getElementById('em-loading').hidden = true;
-  document.getElementById('em-form').hidden = false;
   setTimeout(() => document.getElementById('em-to').focus(), 30);
 }
 
@@ -2739,41 +2697,6 @@ function closeActivity() {
 }
 
 // ============================================================================
-// ASK THE PORTFOLIO (AI) — calls the ask-portfolio edge function
-// ============================================================================
-function openAsk() {
-  document.getElementById('ask-q').value = '';
-  const a = document.getElementById('ask-answer');
-  a.hidden = true; a.textContent = ''; a.className = 'ask-answer';
-  openModal(document.getElementById('ask-modal'));
-}
-async function runAsk(e) {
-  if (e) e.preventDefault();
-  const q = document.getElementById('ask-q').value.trim();
-  if (!q) return;
-  const ans = document.getElementById('ask-answer');
-  const go = document.getElementById('ask-go');
-  ans.hidden = false; ans.className = 'ask-answer loading'; ans.textContent = 'Thinking…';
-  go.disabled = true;
-  try {
-    const { data, error } = await sb.functions.invoke('ask-portfolio', { body: { question: q } });
-    go.disabled = false;
-    if (error || !data || data.error) {
-      ans.className = 'ask-answer err';
-      ans.textContent = (data && data.error) ? data.error
-        : "The AI assistant isn't set up yet — deploy the ask-portfolio edge function and set ANTHROPIC_API_KEY.";
-      return;
-    }
-    ans.className = 'ask-answer';
-    ans.textContent = data.answer || 'No answer.';
-  } catch (err) {
-    go.disabled = false;
-    ans.className = 'ask-answer err';
-    ans.textContent = "Couldn't reach the AI assistant.";
-  }
-}
-
-// ============================================================================
 // COMMAND PALETTE (⌘K)
 // ============================================================================
 let cmdkItems = [], cmdkIndex = 0, cmdkLastFocused = null;
@@ -2790,7 +2713,6 @@ function cmdkActions() {
   ];
   if (isAdmin()) {
     a.unshift({ label: 'New project', icon: 'plus', run: () => openProjectModal(null) });
-    a.unshift({ label: 'Ask the portfolio (AI)', icon: 'sparkle', run: () => openAsk() });
   }
   return a.map(x => ({ ...x, type: 'action', sub: 'Command' }));
 }
