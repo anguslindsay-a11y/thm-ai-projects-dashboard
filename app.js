@@ -379,7 +379,7 @@ sb.auth.onAuthStateChange((event, s) => {
 let appMounted = false;
 async function mountApp() {
   // init() (Google path) and the password-form submit can both reach here;
-  // mounting twice would stack duplicate document listeners + realtime channels.
+  // mounting twice would stack duplicate document listeners + refresh handlers.
   if (appMounted) return;
   appMounted = true;
   document.getElementById('app').style.display = 'block';
@@ -419,7 +419,7 @@ async function mountApp() {
     showToast('That view is admin-only — your account has intake access.', 'err');
   }
   showView(admin ? currentView : 'intake');   // honor ?v= (admins) / force intake (viewers)
-  subscribeRealtime();
+  setupAutoRefresh();
   if (admin) fetchActivity().then(updateActivityBadge);   // prime the corner-button badge
   // Deep link to a specific project (?p=ID)
   if (admin && urlOpenId) {
@@ -455,73 +455,28 @@ async function fetchAudit(projectId) {
 }
 
 // ============================================================================
-// REALTIME
+// AUTO-REFRESH
 // ============================================================================
-let realtimeChannel = null;
-// Apply ONE realtime change to an in-memory array in place — add / merge / remove
-// just the row carried in the payload — instead of refetching the whole table on
-// every event (mirrors the ai_projects handler). Re-sorts by the table's fetch
-// key so list order stays correct. Steady-state events are now incremental; the
-// subscribe() resync below remains the (re)connect gap-recovery backstop.
-function applyRowChange(arr, payload, sortKey) {
-  if (payload.eventType === 'DELETE') {
-    const i = arr.findIndex(x => x.id === (payload.old && payload.old.id));
-    if (i >= 0) arr.splice(i, 1);
-    return;
-  }
-  const row = payload.new;
-  const i = arr.findIndex(x => x.id === row.id);
-  if (i >= 0) arr[i] = { ...arr[i], ...row };
-  else arr.push(row);
-  if (sortKey) arr.sort((a, b) => String(b[sortKey] || '').localeCompare(String(a[sortKey] || '')));
+// Live multi-user propagation was retired: the `supabase_realtime` publication
+// carries none of these tables, so the old postgres_changes subscription could
+// never fire (2026-07 audit, finding F1). Instead we refetch the whole registry
+// at the moments staleness actually bites — when the operator returns to the tab
+// or the network reconnects. Only a few admins edit, so a focus/reconnect
+// refetch is ample; the initial load already ran in mountApp.
+let autoRefreshWired = false;
+async function refreshAll() {
+  await Promise.all([fetchProjects(), fetchDecisions(), fetchIntake(), fetchSignoffs()]);
+  render();
+  renderDecisions();
+  renderIntake();
 }
-function subscribeRealtime() {
-  // Tear down any existing channel first so repeated mounts can't stack duplicates.
-  if (realtimeChannel) { sb.removeChannel(realtimeChannel); realtimeChannel = null; }
-  realtimeChannel = sb.channel('ai_projects_changes')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_projects' }, payload => {
-      if (payload.eventType === 'INSERT') {
-        // Dedup: the saver already merged its own row locally in saveProject,
-        // so its own INSERT echo must not add a second copy (C1).
-        if (!projects.some(p => p.id === payload.new.id)) projects.push(payload.new);
-      }
-      else if (payload.eventType === 'UPDATE') {
-        const i = projects.findIndex(p => p.id === payload.new.id);
-        // Merge (not replace) and skip rows this user is mid-save on, so a
-        // concurrent edit elsewhere can't clobber an in-flight optimistic
-        // change. Our own write echo (no longer pending) reconciles it fully.
-        if (i >= 0 && !pendingWrites.has(payload.new.id)) projects[i] = { ...projects[i], ...payload.new };
-        delete audit[payload.new.id];   // invalidate audit cache for this project
-      }
-      else if (payload.eventType === 'DELETE') {
-        projects = projects.filter(p => p.id !== payload.old.id);
-      }
-      populateFilters();   // a new/removed project may add/drop a theme or owner
-      render();
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_signoffs' }, payload => {
-      applyRowChange(signoffs, payload, 'signed_at');
-      render();   // ship badges + sign-off markers live on the projects table
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_intake_submissions' }, payload => {
-      applyRowChange(intake, payload, 'submitted_at');
-      renderIntake();
-    })
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'ai_decisions' }, payload => {
-      applyRowChange(decisions, payload, 'created_at');
-      renderDecisions();
-      render();   // Blocking decisions feed the projects view (⛔ markers, Blocked KPI/filter)
-    })
-    .subscribe((status) => {
-      // On first connect AND on every reconnect, refetch so changes missed
-      // during the gap between the initial snapshot and the channel going
-      // live (or during a dropout) are picked up (C6). Idempotent.
-      if (status === 'SUBSCRIBED') {
-        Promise.all([fetchProjects(), fetchDecisions(), fetchIntake(), fetchSignoffs()])
-          .then(() => { render(); renderDecisions(); renderIntake(); })
-          .catch(() => {});
-      }
-    });
+function setupAutoRefresh() {
+  if (autoRefreshWired) return;   // mountApp can be reached twice; wire the listeners once
+  autoRefreshWired = true;
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') refreshAll();
+  });
+  window.addEventListener('online', refreshAll);
 }
 
 // ============================================================================
@@ -899,8 +854,8 @@ function renderTable() {
     });
   });
 
-  // Re-apply expansion + open history panels so re-renders (incl. realtime
-  // events from other users) don't collapse what someone is reading.
+  // Re-apply expansion + open history panels so re-renders (incl. an
+  // auto-refresh pulling others' edits) don't collapse what someone is reading.
   expandedIds.forEach(id => {
     const ex = tbody.querySelector(`.expandable-row[data-for="${id}"]`);
     const row = tbody.querySelector(`.main-row[data-id="${id}"]`);
@@ -911,12 +866,6 @@ function renderTable() {
     if (box) { box.style.display = 'block'; loadHistoryInto(box, id); }
   });
 }
-
-// Rows with a local write in flight. Realtime echoes for these are skipped (see
-// the UPDATE handler) so a concurrent edit from another user can't clobber an
-// optimistic change mid-save — the row reconciles authoritatively once our own
-// write echoes back, or on the next reconnect refetch.
-const pendingWrites = new Set();
 
 // Apply a patch to a project optimistically, persist it, and roll back exactly
 // the changed fields on failure. Every inline edit + "Mark reviewed" funnels
@@ -930,10 +879,8 @@ async function optimisticUpdate(id, patch, { ok, err = "Couldn't save change", a
   const prev = {};
   for (const k of Object.keys(patch)) prev[k] = cur[k];
   Object.assign(cur, patch);
-  pendingWrites.add(id);
   render();
   const { error } = await sb.from('ai_projects').update({ ...patch, updated_by: profile.id }).eq('id', id);
-  pendingWrites.delete(id);
   if (error) {
     const roll = projects.find(x => x.id === id);
     if (roll) Object.assign(roll, prev);
@@ -1010,7 +957,7 @@ function openStatusMenu(id, anchor) {
     e.stopPropagation();
     const ns = b.dataset.s;
     closeStatusMenu();
-    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
+    // Re-resolve by id — an auto-refresh may have replaced the captured object.
     const cur = projects.find(x => x.id === id);
     if (!cur || ns === cur.status) return;
     const wentLive = ns === 'Live' && cur.status !== 'Live';
@@ -1115,7 +1062,7 @@ function openOwnerMenu(id, anchor) {
   menu.addEventListener('click', e => e.stopPropagation());
   menu.querySelectorAll('.om-item').forEach(b => b.addEventListener('click', async () => {
     const name = b.dataset.o;
-    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
+    // Re-resolve by id — an auto-refresh may have replaced the captured object.
     const cur = projects.find(x => x.id === id);
     if (!cur) return;
     const set = new Set(cur.owners || []);
@@ -1150,7 +1097,7 @@ function openDateMenu(id, anchor) {
   const input = menu.querySelector('#dm-date');
   const commit = async (val) => {
     closeDateMenu();
-    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
+    // Re-resolve by id — an auto-refresh may have replaced the captured object.
     const cur = projects.find(x => x.id === id);
     if (!cur || (val || '') === (cur.target_date || '')) return;
     await optimisticUpdate(id, { target_date: val || null }, {
@@ -1192,7 +1139,7 @@ function openPriorityMenu(id, anchor) {
   menu.querySelectorAll('.om-item').forEach(b => b.addEventListener('click', async () => {
     const v = b.dataset.v;
     closePriorityMenu();
-    // Re-resolve by id — a realtime UPDATE may have replaced the captured object.
+    // Re-resolve by id — an auto-refresh may have replaced the captured object.
     const cur = projects.find(x => x.id === id);
     if (!cur || (cur.priority || '') === v) return;
     await optimisticUpdate(id, { priority: v || null }, {
@@ -1510,7 +1457,7 @@ function applySort(key) {
 // FILTERS
 // ============================================================================
 // Idempotent: rebuilds option lists from current data and preserves the active
-// selection, so it's safe to call again after a realtime insert/delete.
+// selection, so it's safe to call again after an auto-refresh adds/removes rows.
 function populateFilters() {
   const themes = [...new Set(projects.map(p => p.theme).filter(Boolean))].sort();
   const owners = [...new Set(projects.flatMap(p => p.owners || []).filter(Boolean))].sort();
@@ -1769,8 +1716,8 @@ function openProjectModal(id) {
   const p = id ? projects.find(x => x.id === id) : null;
   document.getElementById('modal-title').textContent = id ? 'Edit project' : 'New project';
   document.getElementById('modal-sub').textContent = id
-    ? 'Changes save to Supabase and propagate live to anyone viewing.'
-    : 'Adds a row to the registry. Visible immediately to everyone.';
+    ? 'Changes save to Supabase. Others see them on their next refresh or tab focus.'
+    : 'Adds a row to the registry. Others see it on their next refresh or tab focus.';
   document.getElementById('modal-delete').style.display = id ? 'inline-block' : 'none';
 
   // Set field values
@@ -1876,7 +1823,7 @@ async function saveProject(e) {
   const btn = document.getElementById('modal-save');
   const err = document.getElementById('modal-err');
 
-  // Capture pre-save status BEFORE the await — a realtime event could replace
+  // Capture pre-save status BEFORE the await — an auto-refresh could replace
   // the row mid-flight and make the "went Live" check race-y.
   const wasEditing = !!editingId;
   const prevStatus = wasEditing ? projects.find(p => p.id === editingId)?.status : null;
@@ -1902,10 +1849,10 @@ async function saveProject(e) {
   }
   // If this insert came from an intake submission, link them (capture before close clears it).
   const promoteLink = (!wasEditing && res.data) ? promotingIntakeId : null;
-  // Merge the saved row locally so the edit shows even if realtime is down.
+  // Merge the saved row locally so the edit shows immediately.
   if (res.data) {
     // This edit wrote a new audit row; drop the cached history so the next
-    // open refetches it even if realtime is disconnected (C3).
+    // open refetches the fresh trail (C3).
     delete audit[res.data.id];
     const i = projects.findIndex(p => p.id === res.data.id);
     if (i >= 0) projects[i] = { ...projects[i], ...res.data };
